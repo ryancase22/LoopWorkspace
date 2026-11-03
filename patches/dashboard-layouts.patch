@@ -1,8 +1,8 @@
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..a5867e0 100644
+index 580d67e..a08be48 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
-@@ -29,6 +29,82 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -29,6 +29,83 @@ final class StatusTableViewController: LoopChartsTableViewController {
  
      private let log = OSLog(category: "StatusTableViewController")
  
@@ -41,7 +41,8 @@ index 580d67e..a5867e0 100644
 +    // Wrap the existing chart, preserving its time scale, prediction and gestures.
 +    // Summary text uses exactly the descriptions already displayed by the native rows.
 +    private func dashboardGlucoseChart(withFrame frame: CGRect) -> UIView? {
-+        guard dashboardLayout != .original, frame.height >= 210 else {
++        guard dashboardLayout != .original, frame.height >= 210,
++              !traitCollection.preferredContentSizeCategory.isAccessibilityCategory else {
 +            return statusCharts.glucoseChart(withFrame: frame)?.view
 +        }
 +        let summaryHeight: CGFloat = traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 108 : 74
@@ -85,7 +86,7 @@ index 580d67e..a5867e0 100644
      lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
  
      var onboardingManager: OnboardingManager!
-@@ -67,6 +143,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -67,6 +144,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
          let notificationCenter = NotificationCenter.default
  
          notificationObservers += [
@@ -95,7 +96,7 @@ index 580d67e..a5867e0 100644
              notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
                  let rawContext = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
                  let context = LoopDataManager.LoopUpdateContext(rawValue: rawContext)
-@@ -165,6 +244,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -165,6 +245,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
          navigationController?.setToolbarHidden(false, animated: animated)
          
          updateToolbarItems()
@@ -103,7 +104,7 @@ index 580d67e..a5867e0 100644
  
          alertPermissionsChecker.checkNow()
  
-@@ -1017,6 +1097,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1017,6 +1098,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              }
          case .hud:
              let cell = tableView.dequeueReusableCell(withIdentifier: HUDViewTableViewCell.className, for: indexPath) as! HUDViewTableViewCell
@@ -111,7 +112,7 @@ index 580d67e..a5867e0 100644
              hudView = cell.hudView
  
              return cell
-@@ -1026,7 +1107,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1026,7 +1108,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
                  cell.setChartGenerator(generator: { [weak self] (frame) in
@@ -120,7 +121,7 @@ index 580d67e..a5867e0 100644
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Glucose", comment: "The title of the glucose and prediction graph"))
                  cell.doesNavigate = automaticDosingStatus.automaticDosingEnabled || !FeatureFlags.simpleBolusCalculatorEnabled
-@@ -1053,6 +1134,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1053,6 +1135,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              cell.setAlpha(alpha: alpha)
  
              cell.setSubtitleTextColor(color: UIColor.secondaryLabel)
@@ -128,7 +129,7 @@ index 580d67e..a5867e0 100644
  
              return cell
          case .status:
-@@ -1222,11 +1304,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1222,11 +1305,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
              var availableSize = max(tableView.bounds.width, tableView.bounds.height)
              availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
  
@@ -312,10 +313,10 @@ index 9f9e3aa..1c86423 100644
 +    }
 +}
 diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
-index b29b1d5..87d384d 100644
+index b29b1d5..1c12501 100644
 --- a/Loop/LoopTests/LoopTests.swift
 +++ b/Loop/LoopTests/LoopTests.swift
-@@ -7,10 +7,182 @@
+@@ -7,10 +7,193 @@
  //
  
  import XCTest
@@ -385,10 +386,17 @@ index b29b1d5..87d384d 100644
 +
 +    @MainActor
 +    func testPresentationLayoutsAtPhoneWidthsAndTextSizes() {
++        XCTAssertNotNil(UIImage(named: "DashboardHorizon", in: .main, compatibleWith: nil))
 +        for width in [CGFloat(320), 390, 430] {
 +            for dark in [false, true] {
 +                for accessibility in [false, true] {
 +                    let host = UIViewController()
++                    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: width, height: 900))
++                    window.overrideUserInterfaceStyle = dark ? .dark : .light
++                    window.rootViewController = host
++                    window.isHidden = false
++                    host.view.frame = window.bounds
++                    window.layoutIfNeeded()
 +                    host.overrideUserInterfaceStyle = dark ? .dark : .light
 +                    let child = UIViewController()
 +                    host.addChild(child)
@@ -402,6 +410,8 @@ index b29b1d5..87d384d 100644
 +                        child.view.addSubview(hud)
 +                        hud.cgmStatusHUD.glucoseValueHUD.glucoseLabel.text = "112"
 +                        hud.cgmStatusHUD.glucoseValueHUD.unitLabel.text = "mg/dL"
++                        hud.layoutIfNeeded()
++                        XCTAssertEqual(hud.traitCollection.userInterfaceStyle, dark ? .dark : .light)
 +                        hud.setDashboardPresentation(style)
 +                        let size = hud.systemLayoutSizeFitting(CGSize(width: width, height: 0),
 +                            withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
@@ -426,6 +436,8 @@ index b29b1d5..87d384d 100644
 +                        }
 +                        hud.removeFromSuperview()
 +                    }
++                    window.isHidden = true
++                    window.rootViewController = nil
 +                }
 +            }
 +        }
@@ -516,7 +528,7 @@ index 904f9d4..4d9d37e 100644
          didSet {
              guard let lifecycleProgress = lifecycleProgress else {
 diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
-index 3bd851e..77c71bc 100644
+index 3bd851e..21b91cc 100644
 --- a/Loop/LoopUI/Views/StatusBarHUDView.swift
 +++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
 @@ -9,6 +9,51 @@
@@ -571,7 +583,7 @@ index 3bd851e..77c71bc 100644
  public class StatusBarHUDView: UIView, NibLoadable {
      
      @IBOutlet public weak var cgmStatusHUD: CGMStatusHUDView!
-@@ -18,13 +63,145 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -18,13 +63,152 @@ public class StatusBarHUDView: UIView, NibLoadable {
      @IBOutlet public weak var pumpStatusHUD: PumpStatusHUDView!
          
      public var containerView: UIStackView!
@@ -586,12 +598,15 @@ index 3bd851e..77c71bc 100644
 +        identityLabel.text = presentation == .original ? nil : "LOOP  /  RYAN"
 +        identityLabel.textColor = .secondaryLabel
 +        identityHeight.constant = presentation == .original ? 0 : 32
-+        let layout: Int
++        var layout: Int
 +        switch presentation {
 +        case .original, .missionControl: layout = 0
 +        case .orbit, .eclipse, .zenith: layout = 1
 +        case .aurora: layout = 2
 +        case .telemetry: layout = 3
++        }
++        if presentation != .original && traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
++            layout = 1
 +        }
 +        setHUDLayout(layout)
 +        if presentation != .original {
@@ -616,6 +631,10 @@ index 3bd851e..77c71bc 100644
 +
 +    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
 +        super.traitCollectionDidChange(previousTraitCollection)
++        if identityHeight != nil,
++           previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
++            setDashboardPresentation(presentation)
++        }
 +        layer.borderColor = presentation.accent.withAlphaComponent(0.3).resolvedColor(with: traitCollection).cgColor
 +    }
 +
@@ -718,7 +737,7 @@ index 3bd851e..77c71bc 100644
              }
          }
      }
-@@ -48,20 +225,39 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -48,20 +232,39 @@ public class StatusBarHUDView: UIView, NibLoadable {
      
      func setup() {
          containerView = (StatusBarHUDView.nib().instantiate(withOwner: self, options: nil)[0] as! UIStackView)
@@ -760,7 +779,7 @@ index 3bd851e..77c71bc 100644
      public func removePumpManagerProvidedView() {
          pumpStatusHUD.removePumpManagerProvidedHUD()
      }
-@@ -70,3 +266,29 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -70,3 +273,29 @@ public class StatusBarHUDView: UIView, NibLoadable {
          pumpStatusHUD.addPumpManagerProvidedHUDView(pumpManagerProvidedHUD)
      }
  }
