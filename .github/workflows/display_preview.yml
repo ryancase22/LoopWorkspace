@@ -34,7 +34,7 @@ jobs:
           entries = ET.SubElement(action, 'BuildActionEntries')
           for entry in source.findall('./BuildAction/BuildActionEntries/BuildActionEntry'):
               reference = entry.find('BuildableReference')
-              if reference.get('BuildableName', '').endswith('.loopplugin'):
+              if reference.get('BuildableName', '').endswith(('.loopplugin', '.framework')):
                   entries.append(entry)
           assert len(entries) > 0
           ET.ElementTree(root).write(directory / 'DisplayPlugins.xcscheme', encoding='UTF-8', xml_declaration=True)
