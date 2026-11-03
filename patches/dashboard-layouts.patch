@@ -1,5 +1,5 @@
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..d8e0fa4 100644
+index 580d67e..9f8e312 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
 @@ -29,6 +29,112 @@ final class StatusTableViewController: LoopChartsTableViewController {
@@ -40,10 +40,10 @@ index 580d67e..d8e0fa4 100644
 +    }
 +
 +    /// Keep measured/modelled values native; explain each chart in its own card.
-+    private func readableChart(withFrame frame: CGRect, explanation: String,
++    func readableChart(withFrame frame: CGRect, explanation: String,
 +                               render: (CGRect) -> UIView?) -> UIView? {
 +        guard dashboardLayout != .original else { return render(frame) }
-+        let font = UIFont.preferredFont(forTextStyle: .footnote)
++        let font = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: traitCollection)
 +        let inset: CGFloat = 12
 +        let width = max(0, frame.width - inset * 2)
 +        let textHeight = ceil((explanation as NSString).boundingRect(
@@ -382,10 +382,10 @@ index 9f9e3aa..5e1e96b 100644
 +    }
 +}
 diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
-index b29b1d5..1c12501 100644
+index b29b1d5..cf83898 100644
 --- a/Loop/LoopTests/LoopTests.swift
 +++ b/Loop/LoopTests/LoopTests.swift
-@@ -7,10 +7,193 @@
+@@ -7,10 +7,234 @@
  //
  
  import XCTest
@@ -414,6 +414,47 @@ index b29b1d5..1c12501 100644
 +        for layout in DashboardLayout.allCases {
 +            defaults.set(layout.rawValue, forKey: key)
 +            XCTAssertEqual(DashboardLayout.selected, layout)
++        }
++    }
++
++    @MainActor
++    func testExplainedCardsRetainChartAndOriginalGeometry() {
++        let defaults = UserDefaults.standard
++        let previous = defaults.object(forKey: DashboardLayout.preferenceKey)
++        defer {
++            if let previous = previous { defaults.set(previous, forKey: DashboardLayout.preferenceKey) }
++            else { defaults.removeObject(forKey: DashboardLayout.preferenceKey) }
++        }
++        for layout in [DashboardLayout.original, .glance] {
++            defaults.set(layout.rawValue, forKey: DashboardLayout.preferenceKey)
++            let controller = StatusTableViewController(style: .plain)
++            for width in [CGFloat(320), 390, 430] {
++                for height in [CGFloat(140), 240, 400] {
++                    let frame = CGRect(x: 0, y: 0, width: width, height: height)
++                    let chart = UIView()
++                    var requestedFrame = CGRect.zero
++                    let help = "Estimated carbs still being absorbed from your logged meals."
++                    let result = controller.readableChart(withFrame: frame, explanation: help) { rect in
++                        requestedFrame = rect
++                        chart.frame = rect
++                        return chart
++                    }
++                    XCTAssertNotNil(result)
++                    if layout == .original {
++                        XCTAssertTrue(result === chart)
++                        XCTAssertEqual(requestedFrame, frame)
++                    } else if result !== chart {
++                        XCTAssertTrue(chart.superview === result)
++                        XCTAssertGreaterThanOrEqual(requestedFrame.height, 100)
++                        let labels = result!.subviews.compactMap { $0 as? UILabel }
++                        XCTAssertEqual(labels.count, 1)
++                        XCTAssertEqual(labels.first?.text, help)
++                        XCTAssertLessThanOrEqual(labels[0].frame.maxY, height)
++                        XCTAssertLessThanOrEqual(chart.frame.maxX, width)
++                        XCTAssertLessThanOrEqual(chart.frame.maxY, labels[0].frame.minY)
++                    }
++                }
++            }
 +        }
 +    }
 +
