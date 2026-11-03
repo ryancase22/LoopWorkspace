@@ -1,0 +1,33 @@
+name: Display layout checks
+on:
+  push:
+    branches: [display-layouts]
+    paths:
+      - patches/dashboard-layouts.patch
+      - .github/workflows/display_preview.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  display:
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Select Xcode
+        run: sudo xcode-select --switch /Applications/Xcode_27.0.app/Contents/Developer
+      - name: Apply display patch
+        run: git apply --check patches/dashboard-layouts.patch && git apply patches/dashboard-layouts.patch
+      - name: Test display fallback and existing glucose staleness handling
+        run: |
+          set -o pipefail
+          mkdir -p display-results
+          xcodebuild -workspace LoopWorkspace.xcworkspace -scheme LoopWorkspace -destination 'platform=iOS Simulator,name=iPhone 17' -collect-test-diagnostics never -resultBundlePath display-results/Display.xcresult -only-testing:LoopTests/LoopTests test CODE_SIGNING_ALLOWED=NO SUPPORTS_MACCATALYST=NO 2>&1 | tee display-results/build.log | xcbeautify
+      - name: Save test results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: display-results
+          path: display-results
