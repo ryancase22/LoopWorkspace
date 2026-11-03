@@ -429,7 +429,7 @@ index b29b1d5..0ccdb89 100644
  extension XCTestCase {
      
 diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
-index 3bd851e..78ec2dc 100644
+index 3bd851e..00ce6bd 100644
 --- a/Loop/LoopUI/Views/StatusBarHUDView.swift
 +++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
 @@ -9,6 +9,44 @@
@@ -477,7 +477,7 @@ index 3bd851e..78ec2dc 100644
  public class StatusBarHUDView: UIView, NibLoadable {
      
      @IBOutlet public weak var cgmStatusHUD: CGMStatusHUDView!
-@@ -18,13 +56,100 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -18,13 +56,102 @@ public class StatusBarHUDView: UIView, NibLoadable {
      @IBOutlet public weak var pumpStatusHUD: PumpStatusHUDView!
          
      public var containerView: UIStackView!
@@ -521,7 +521,9 @@ index 3bd851e..78ec2dc 100644
 +            // Removing arranged views also removes constraints between them.
 +            // Save the nib's equal-width constraint so Original restores exactly.
 +            originalHUDConstraints = containerView.constraints.filter {
-+                ($0.firstItem as? UIView) === cgm || ($0.firstItem as? UIView) === pump
++                $0.firstAttribute == .width && $0.secondAttribute == .width &&
++                    ((($0.firstItem as? UIView) === pump && ($0.secondItem as? UIView) === cgm) ||
++                     (($0.firstItem as? UIView) === cgm && ($0.secondItem as? UIView) === pump))
 +            }
 +        }
 +        NSLayoutConstraint.deactivate(originalHUDConstraints ?? [])
