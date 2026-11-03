@@ -1,0 +1,912 @@
+diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
+index 580d67e..0f97c86 100644
+--- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
++++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
+@@ -29,6 +29,95 @@ final class StatusTableViewController: LoopChartsTableViewController {
+ 
+     private let log = OSLog(category: "StatusTableViewController")
+ 
++    private var dashboardLayout = DashboardLayout.selected
++
++    private func applyDashboardLayoutIfNeeded() {
++        let selected = DashboardLayout.selected
++        guard selected != dashboardLayout else { return }
++        dashboardLayout = selected
++        lastCardHeightBudget = nil
++        tableView.sectionHeaderTopPadding = selected == .original ? (originalSectionHeaderPadding ?? 22) : 0
++        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
++        hudView?.setDashboardPresentation(selected.presentation)
++        for cell in tableView.visibleCells where cell is ChartTableViewCell {
++            applyDashboardCard(to: cell)
++        }
++        tableView.beginUpdates()
++        tableView.endUpdates()
++        redrawCharts()
++    }
++
++
++    /// Style only chart cells; alert/status rows keep their native warning presentation.
++    private func applyDashboardCard(to cell: UITableViewCell) {
++        guard dashboardLayout != .original else {
++            cell.backgroundConfiguration = nil
++            return
++        }
++        var card = UIBackgroundConfiguration.clear()
++        card.backgroundColor = .secondarySystemGroupedBackground
++        card.cornerRadius = 20
++        card.backgroundInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
++        card.strokeColor = .separator
++        card.strokeWidth = 0.5
++        cell.backgroundConfiguration = card
++    }
++
++    /// Preserve the native plot and its complete vertical space. No explanatory text.
++    func cardChart(withFrame frame: CGRect, render: (CGRect) -> UIView?) -> UIView? {
++        guard dashboardLayout != .original else { return render(frame) }
++        let inset: CGFloat = 10
++        let plot = CGRect(x: 0, y: 0, width: max(0, frame.width - inset * 2), height: frame.height - 6)
++        guard let chart = render(plot) else { return nil }
++        let wrapper = UIView(frame: frame)
++        chart.frame.origin = CGPoint(x: inset, y: 0)
++        wrapper.addSubview(chart)
++        return wrapper
++    }
++
++    private var originalSectionHeaderPadding: CGFloat?
++    private var cardSectionChrome: CGFloat = 0
++    private var lastCardHeightBudget: CGFloat?
++    private var updatingCardHeights = false
++
++    private var cardHeightBudget: CGFloat {
++        let viewport = tableView.bounds.height - tableView.adjustedContentInset.top - tableView.adjustedContentInset.bottom
++        var occupied: CGFloat = (tableView.tableHeaderView?.bounds.height ?? 0) + (tableView.tableFooterView?.bounds.height ?? 0)
++        for section in [Section.alertWarning, .hud, .status] {
++            let cells = tableView.visibleCells.filter {
++                tableView.indexPath(for: $0)?.section == section.rawValue
++            }
++            if !cells.isEmpty {
++                occupied += cells.reduce(0) { $0 + $1.bounds.height }
++            } else {
++                switch section {
++                case .hud: occupied += shouldShowHUD ? 90 : 0
++                case .status: occupied += shouldShowStatus ? 84 : 0
++                case .alertWarning: occupied += shouldShowBannerWarning ? 100 : 0
++                case .charts: break
++                }
++            }
++        }
++        // Leave breathing room above the bottom controls and for fractional row rounding.
++        return floor(max(0, viewport - occupied - cardSectionChrome - 20))
++    }
++
++    override func viewDidLayoutSubviews() {
++        super.viewDidLayoutSubviews()
++        guard dashboardLayout != .original, !updatingCardHeights else { return }
++        updatingCardHeights = true
++        defer { updatingCardHeights = false }
++        cardSectionChrome = ceil(Section.allCases.reduce(CGFloat(0)) { result, section in
++            result + tableView.rectForHeader(inSection: section.rawValue).height
++                + tableView.rectForFooter(inSection: section.rawValue).height
++        })
++        let budget = cardHeightBudget
++        guard lastCardHeightBudget != budget else { return }
++        lastCardHeightBudget = budget
++        tableView.beginUpdates()
++        tableView.endUpdates()
++    }
++
+     lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
+ 
+     var onboardingManager: OnboardingManager!
+@@ -50,6 +139,8 @@ final class StatusTableViewController: LoopChartsTableViewController {
+         super.viewDidLoad()
+         
+         setupToolbarItems()
++        originalSectionHeaderPadding = tableView.sectionHeaderTopPadding
++        if dashboardLayout != .original { tableView.sectionHeaderTopPadding = 0 }
+         
+         tableView.register(BolusProgressTableViewCell.nib(), forCellReuseIdentifier: BolusProgressTableViewCell.className)
+         tableView.register(AlertPermissionsDisabledWarningCell.self, forCellReuseIdentifier: AlertPermissionsDisabledWarningCell.className)
+@@ -67,6 +158,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
+         let notificationCenter = NotificationCenter.default
+ 
+         notificationObservers += [
++            notificationCenter.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
++                self?.applyDashboardLayoutIfNeeded()
++            },
+             notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
+                 let rawContext = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
+                 let context = LoopDataManager.LoopUpdateContext(rawValue: rawContext)
+@@ -165,6 +259,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+         navigationController?.setToolbarHidden(false, animated: animated)
+         
+         updateToolbarItems()
++        applyDashboardLayoutIfNeeded()
+ 
+         alertPermissionsChecker.checkNow()
+ 
+@@ -1017,6 +1112,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+             }
+         case .hud:
+             let cell = tableView.dequeueReusableCell(withIdentifier: HUDViewTableViewCell.className, for: indexPath) as! HUDViewTableViewCell
++            cell.hudView.setDashboardPresentation(dashboardLayout.presentation)
+             hudView = cell.hudView
+ 
+             return cell
+@@ -1025,24 +1121,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
+ 
+             switch ChartRow(rawValue: indexPath.row)! {
+             case .glucose:
+-                cell.setChartGenerator(generator: { [weak self] (frame) in
+-                    return self?.statusCharts.glucoseChart(withFrame: frame)?.view
++                cell.setChartGenerator(generator: { [weak self] frame in
++                    self?.cardChart(withFrame: frame) { self?.statusCharts.glucoseChart(withFrame: $0)?.view }
+                 })
+                 cell.setTitleLabelText(label: NSLocalizedString("Glucose", comment: "The title of the glucose and prediction graph"))
+                 cell.doesNavigate = automaticDosingStatus.automaticDosingEnabled || !FeatureFlags.simpleBolusCalculatorEnabled
+             case .iob:
+-                cell.setChartGenerator(generator: { [weak self] (frame) in
+-                    return self?.statusCharts.iobChart(withFrame: frame)?.view
++                cell.setChartGenerator(generator: { [weak self] frame in
++                    self?.cardChart(withFrame: frame) { self?.statusCharts.iobChart(withFrame: $0)?.view }
+                 })
+                 cell.setTitleLabelText(label: NSLocalizedString("Active Insulin", comment: "The title of the Insulin On-Board graph"))
+             case .dose:
+-                cell.setChartGenerator(generator: { [weak self] (frame) in
+-                    return self?.statusCharts.doseChart(withFrame: frame)?.view
++                cell.setChartGenerator(generator: { [weak self] frame in
++                    self?.cardChart(withFrame: frame) { self?.statusCharts.doseChart(withFrame: $0)?.view }
+                 })
+                 cell.setTitleLabelText(label: NSLocalizedString("Insulin Delivery", comment: "The title of the insulin delivery graph"))
+             case .cob:
+-                cell.setChartGenerator(generator: { [weak self] (frame) in
+-                    return self?.statusCharts.cobChart(withFrame: frame)?.view
++                cell.setChartGenerator(generator: { [weak self] frame in
++                    self?.cardChart(withFrame: frame) { self?.statusCharts.cobChart(withFrame: $0)?.view }
+                 })
+                 cell.setTitleLabelText(label: NSLocalizedString("Active Carbohydrates", comment: "The title of the Carbs On-Board graph"))
+             }
+@@ -1053,6 +1149,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+             cell.setAlpha(alpha: alpha)
+ 
+             cell.setSubtitleTextColor(color: UIColor.secondaryLabel)
++            applyDashboardCard(to: cell)
+ 
+             return cell
+         case .status:
+@@ -1179,7 +1276,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+             switch ChartRow(rawValue: indexPath.row)! {
+             case .glucose:
+                 if let eventualGlucose = eventualGlucoseDescription {
+-                    cell.setSubtitleLabel(label: String(format: NSLocalizedString("Eventually %@", comment: "The subtitle format describing eventual glucose. (1: localized glucose value description)"), eventualGlucose))
++                    cell.setSubtitleLabel(label: String(format: NSLocalizedString(dashboardLayout == .original ? "Eventually %@" : "Predicted: %@", comment: "The subtitle format describing eventual glucose. (1: localized glucose value description)"), eventualGlucose))
+                 } else {
+                     cell.setSubtitleLabel(label: nil)
+                 }
+@@ -1222,12 +1319,11 @@ final class StatusTableViewController: LoopChartsTableViewController {
+             var availableSize = max(tableView.bounds.width, tableView.bounds.height)
+             availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
+ 
+-            switch ChartRow(rawValue: indexPath.row)! {
+-            case .glucose:
+-                return max(106, 0.37 * availableSize)
+-            case .iob, .dose, .cob:
+-                return max(106, 0.21 * availableSize)
++            let row = ChartRow(rawValue: indexPath.row)!
++            if dashboardLayout == .original {
++                return max(106, (row == .glucose ? 0.37 : 0.21) * availableSize)
+             }
++            return dashboardLayout.fittedChartHeights(availableHeight: cardHeightBudget)[indexPath.row]
+         case .hud, .status, .alertWarning:
+             return UITableView.automaticDimension
+         }
+diff --git a/Loop/Loop/Views/SettingsView.swift b/Loop/Loop/Views/SettingsView.swift
+index 9f9e3aa..1fa2aac 100644
+--- a/Loop/Loop/Views/SettingsView.swift
++++ b/Loop/Loop/Views/SettingsView.swift
+@@ -7,6 +7,7 @@
+ //
+ 
+ import LoopKit
++import LoopUI
+ import LoopKitUI
+ import MockKit
+ import SwiftUI
+@@ -21,6 +22,8 @@ public struct SettingsView: View {
+     @Environment(\.glucoseTintColor) private var glucoseTintColor
+     @Environment(\.insulinTintColor) private var insulinTintColor
+ 
++    @AppStorage(DashboardLayout.preferenceKey) private var dashboardLayout = DashboardLayout.original.rawValue
++
+     @ObservedObject var viewModel: SettingsViewModel
+     @ObservedObject var versionUpdateViewModel: VersionUpdateViewModel
+ 
+@@ -89,6 +92,7 @@ public struct SettingsView: View {
+                     }
+                 }
+                 Group {
++                    appearanceSection
+                     if viewModel.servicesViewModel.showServices {
+                         servicesSection
+                     }
+@@ -195,6 +199,72 @@ extension SettingsView {
+         }
+     }
+     
++    private var appearanceSection: some View {
++        Section(header: Text("Appearance")) {
++            NavigationLink(destination: dashboardLayoutSelection) {
++                HStack {
++                    Text("Dashboard layout")
++                    Spacer()
++                    Text((DashboardLayout(rawValue: dashboardLayout) ?? .original).title)
++                        .foregroundColor(.secondary)
++                }
++            }
++        }
++    }
++
++    private var dashboardLayoutSelection: some View {
++        List {
++            Section(footer: Text("Changes the dashboard presentation only. Choose Original Loop to restore the standard display.")) {
++                ForEach(DashboardLayout.allCases, id: \.rawValue) { layout in
++                    Button(action: { dashboardLayout = layout.rawValue }) {
++                        HStack(spacing: 16) {
++                            dashboardThumbnail(layout)
++                            VStack(alignment: .leading, spacing: 4) {
++                                Text(layout.title).foregroundColor(.primary)
++                                Text(layout.detail)
++                                    .font(.footnote)
++                                    .foregroundColor(.secondary)
++                            }
++                            Spacer()
++                            if (DashboardLayout(rawValue: dashboardLayout) ?? .original) == layout {
++                                Image(systemName: "checkmark").accessibilityLabel("Selected")
++                            }
++                        }
++                        .padding(.vertical, 4)
++                        .contentShape(Rectangle())
++                    }
++                    .accessibilityAddTraits((DashboardLayout(rawValue: dashboardLayout) ?? .original) == layout ? .isSelected : [])
++                }
++            }
++        }
++        .insetGroupedListStyle()
++        .navigationTitle("Dashboard layout")
++    }
++
++    // Abstract thumbnails avoid presenting sample values as live glucose readings.
++    private func dashboardThumbnail(_ layout: DashboardLayout) -> some View {
++        VStack(spacing: 5) {
++            HStack(spacing: 4) {
++                RoundedRectangle(cornerRadius: 3).fill(Color(layout.presentation.accent)).frame(width: layout == .glance ? 28 : 18, height: 10)
++                Spacer(minLength: 0)
++                Circle().stroke(Color.secondary, lineWidth: 2).frame(width: 8, height: 8)
++            }
++            RoundedRectangle(cornerRadius: 3)
++                .fill(Color(layout.presentation.accent).opacity(0.25))
++                .frame(height: layout == .graphFirst ? 26 : 16)
++            HStack(spacing: 3) {
++                ForEach(0..<3) { _ in
++                    RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.2)).frame(height: 7)
++                }
++            }
++        }
++        .padding(8)
++        .frame(width: 78, height: 76)
++        .background(Color(layout.presentation.surface))
++        .clipShape(RoundedRectangle(cornerRadius: 12))
++        .accessibilityHidden(true)
++    }
++
+     private var softwareUpdateSection: some View {
+         Section(footer: Text(viewModel.versionUpdateViewModel.footer(appName: appName))) {
+             NavigationLink(destination: viewModel.versionUpdateViewModel.softwareUpdateView) {
+@@ -698,3 +768,67 @@ public struct SettingsView_Previews: PreviewProvider {
+         }
+     }
+ }
++
++// Local presentation preference only; deliberately separate from therapy settings.
++enum DashboardLayout: String, CaseIterable {
++    case original, glance, graphFirst, compact, aurora, telemetry, zenith
++
++    static let preferenceKey = "com.ryancase.loop.dashboardLayout.v1"
++
++    static var selected: DashboardLayout {
++        DashboardLayout(rawValue: UserDefaults.standard.string(forKey: preferenceKey) ?? "") ?? .original
++    }
++
++    // Allocate one finite viewport budget. Do not independently clamp each row,
++    // which made the previous cards taller than the screen in total.
++    func fittedChartHeights(availableHeight: CGFloat) -> [CGFloat] {
++        let weights: [CGFloat]
++        switch self {
++        case .original, .glance: weights = [0.40, 0.20, 0.20, 0.20]
++        case .graphFirst: weights = [0.46, 0.18, 0.18, 0.18]
++        case .compact: weights = [0.34, 0.22, 0.22, 0.22]
++        case .aurora: weights = [0.37, 0.21, 0.21, 0.21]
++        case .telemetry: weights = [0.32, 0.24, 0.26, 0.18]
++        case .zenith: weights = [0.40, 0.20, 0.20, 0.20]
++        }
++        let budget = max(0, availableHeight)
++        let first = weights.prefix(3).map { floor(budget * $0) }
++        return first + [max(0, budget - first.reduce(0, +))]
++    }
++
++    var presentation: DashboardPresentation {
++        switch self {
++        case .original: return .original
++        case .glance: return .orbit
++        case .graphFirst: return .missionControl
++        case .compact: return .eclipse
++        case .aurora: return .aurora
++        case .telemetry: return .telemetry
++        case .zenith: return .zenith
++        }
++    }
++
++    var title: String {
++        switch self {
++        case .original: return "Original Loop"
++        case .glance: return "Everyday cards"
++        case .graphFirst: return "Glucose focus"
++        case .compact: return "Simple cards"
++        case .aurora: return "Compact cards"
++        case .telemetry: return "Insulin focus"
++        case .zenith: return "Large numbers"
++        }
++    }
++
++    var detail: String {
++        switch self {
++        case .original: return "The standard Loop dashboard."
++        case .glance: return "Balanced cards."
++        case .graphFirst: return "Larger glucose graph."
++        case .compact: return "Minimal cards."
++        case .aurora: return "Compact cards."
++        case .telemetry: return "Larger insulin graphs."
++        case .zenith: return "Larger glucose number."
++        }
++    }
++}
+diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
+index b29b1d5..e492939 100644
+--- a/Loop/LoopTests/LoopTests.swift
++++ b/Loop/LoopTests/LoopTests.swift
+@@ -7,10 +7,244 @@
+ //
+ 
+ import XCTest
++import UIKit
++import HealthKit
++import LoopUI
+ 
+ @testable import Loop
+ 
+-class LoopTests: XCTestCase {}
++class LoopTests: XCTestCase {
++    func testDashboardPreferenceDefaultsAndRoundTrip() {
++        XCTAssertEqual(DashboardLayout.allCases.count, 7)
++        XCTAssertEqual(Set(DashboardLayout.allCases.map { $0.title }).count, 7)
++        let defaults = UserDefaults.standard
++        let key = DashboardLayout.preferenceKey
++        let previous = defaults.object(forKey: key)
++        defer {
++            if let previous = previous { defaults.set(previous, forKey: key) }
++            else { defaults.removeObject(forKey: key) }
++        }
++        defaults.removeObject(forKey: key)
++        XCTAssertEqual(DashboardLayout.selected, .original)
++        defaults.set("unknown-future-layout", forKey: key)
++        XCTAssertEqual(DashboardLayout.selected, .original)
++        for layout in DashboardLayout.allCases {
++            defaults.set(layout.rawValue, forKey: key)
++            XCTAssertEqual(DashboardLayout.selected, layout)
++        }
++    }
++
++    func testAllSixLayoutsFitOneViewportBudget() {
++        for layout in DashboardLayout.allCases where layout != .original {
++            for viewport in [CGFloat(812), 844, 896, 932] {
++                // Reserve safe areas, toolbar, compact HUD, a status row and padding.
++                let occupied: CGFloat = 59 + 83 + 90 + 84 + 20
++                let budget = viewport - occupied
++                let rows = layout.fittedChartHeights(availableHeight: budget)
++                XCTAssertEqual(rows.count, 4)
++                XCTAssertEqual(rows.reduce(0, +), budget, accuracy: 0.01)
++                XCTAssertLessThanOrEqual(rows.reduce(0, +) + occupied, viewport)
++                XCTAssertTrue(rows.allSatisfy { $0 >= 80 })
++                if viewport == 932 { XCTAssertTrue(rows.allSatisfy { $0 >= 100 }) }
++            }
++        }
++    }
++
++    @MainActor
++    func testCardsContainOnlyTheNativeChartAndOriginalGeometry() {
++        let defaults = UserDefaults.standard
++        let previous = defaults.object(forKey: DashboardLayout.preferenceKey)
++        defer {
++            if let previous = previous { defaults.set(previous, forKey: DashboardLayout.preferenceKey) }
++            else { defaults.removeObject(forKey: DashboardLayout.preferenceKey) }
++        }
++        for layout in [DashboardLayout.original, .glance] {
++            defaults.set(layout.rawValue, forKey: DashboardLayout.preferenceKey)
++            let controller = StatusTableViewController(style: .plain)
++            for width in [CGFloat(320), 390, 430] {
++                let frame = CGRect(x: 0, y: 0, width: width, height: 120)
++                let chart = UIView()
++                var requestedFrame = CGRect.zero
++                let result = controller.cardChart(withFrame: frame) { rect in
++                    requestedFrame = rect
++                    chart.frame = rect
++                    return chart
++                }
++                XCTAssertNotNil(result)
++                if layout == .original {
++                    XCTAssertTrue(result === chart)
++                    XCTAssertEqual(requestedFrame, frame)
++                } else {
++                    XCTAssertTrue(chart.superview === result)
++                    XCTAssertEqual(result?.subviews.count, 1)
++                    XCTAssertLessThanOrEqual(chart.frame.maxX, width)
++                    XCTAssertLessThanOrEqual(chart.frame.maxY, frame.height)
++                }
++            }
++        }
++    }
++
++    @MainActor
++    func testAllPresentationsRetainStaleReadingAndHUDIdentity() {
++        let hud = StatusBarHUDView(frame: CGRect(x: 0, y: 0, width: 390, height: 74))
++        let cgm = hud.cgmStatusHUD!
++        let loop = hud.loopCompletionHUD!
++        let pump = hud.pumpStatusHUD!
++        let originalFont = cgm.glucoseValueHUD.glucoseLabel.font
++        let originalBackground = hud.backgroundColor
++        let tap = UITapGestureRecognizer()
++        cgm.addGestureRecognizer(tap)
++        for unit in [HKUnit(from: "mg/dL"), HKUnit(from: "mmol/L")] {
++            cgm.setGlucoseQuantity(112, at: Date().addingTimeInterval(-3600), unit: unit,
++                                  staleGlucoseAge: 600, glucoseDisplay: nil,
++                                  wasUserEntered: false, isDisplayOnly: false)
++            let staleText = cgm.glucoseValueHUD.glucoseLabel.text
++            let accessibility = cgm.accessibilityValue
++            for _ in 0..<3 {
++                for layout in DashboardLayout.allCases {
++                    hud.setDashboardPresentation(layout.presentation)
++                    XCTAssertTrue(hud.cgmStatusHUD === cgm)
++                    XCTAssertTrue(hud.loopCompletionHUD === loop)
++                    XCTAssertTrue(hud.pumpStatusHUD === pump)
++                    XCTAssertEqual(cgm.glucoseValueHUD.glucoseLabel.text, staleText)
++                    XCTAssertEqual(cgm.accessibilityValue, accessibility)
++                    XCTAssertTrue(cgm.gestureRecognizers?.contains(tap) == true)
++                }
++            }
++        }
++        hud.setDashboardPresentation(.original)
++        XCTAssertEqual(hud.containerView.axis, .horizontal)
++        XCTAssertEqual(hud.layer.borderWidth, 0)
++        XCTAssertEqual(cgm.glucoseValueHUD.glucoseLabel.font, originalFont)
++        XCTAssertEqual(hud.backgroundColor?.resolvedColor(with: hud.traitCollection),
++                       originalBackground?.resolvedColor(with: hud.traitCollection))
++    }
++
++    @MainActor
++    func testPresentationLayoutsAtPhoneWidthsAndTextSizes() {
++        XCTAssertNotNil(UIImage(named: "DashboardHorizon", in: .main, compatibleWith: nil))
++        for width in [CGFloat(320), 390, 430] {
++            for dark in [false, true] {
++                for accessibility in [false, true] {
++                    let host = UIViewController()
++                    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: width, height: 900))
++                    window.overrideUserInterfaceStyle = dark ? .dark : .light
++                    window.rootViewController = host
++                    window.isHidden = false
++                    host.view.frame = window.bounds
++                    window.layoutIfNeeded()
++                    host.overrideUserInterfaceStyle = dark ? .dark : .light
++                    let child = UIViewController()
++                    host.addChild(child)
++                    host.view.addSubview(child.view)
++                    child.didMove(toParent: host)
++                    host.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory:
++                        accessibility ? .accessibilityExtraExtraExtraLarge : .large), forChild: child)
++                    for style in DashboardPresentation.allCases {
++                        let hud = StatusBarHUDView(frame: CGRect(x: 0, y: 0, width: width, height: 74))
++                        hud.overrideUserInterfaceStyle = dark ? .dark : .light
++                        child.view.addSubview(hud)
++                        hud.cgmStatusHUD.glucoseValueHUD.glucoseLabel.text = "112"
++                        hud.cgmStatusHUD.glucoseValueHUD.unitLabel.text = "mg/dL"
++                        hud.layoutIfNeeded()
++                        XCTAssertEqual(hud.traitCollection.userInterfaceStyle, dark ? .dark : .light)
++                        hud.setDashboardPresentation(style)
++                        let size = hud.systemLayoutSizeFitting(CGSize(width: width, height: 0),
++                            withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
++                        hud.frame.size = size
++                        hud.layoutIfNeeded()
++                        XCTAssertEqual(size.width, width, accuracy: 1)
++                        XCTAssertGreaterThan(size.height, 0)
++                        if !accessibility { XCTAssertLessThanOrEqual(size.height, 90) }
++                        XCTAssertFalse(hud.hasAmbiguousLayout)
++                        let views: [UIView] = [hud.cgmStatusHUD!, hud.loopCompletionHUD!, hud.pumpStatusHUD!]
++                        for view in views {
++                            let rect = view.convert(view.bounds, to: hud)
++                            XCTAssertGreaterThanOrEqual(rect.minX, -1)
++                            XCTAssertLessThanOrEqual(rect.maxX, width + 1)
++                            XCTAssertGreaterThan(rect.height, 0)
++                        }
++                        if width == 390 && !accessibility {
++                            let image = UIGraphicsImageRenderer(size: size).image { hud.layer.render(in: $0.cgContext) }
++                            let attachment = XCTAttachment(image: image)
++                            attachment.name = "\(style)-\(dark ? "dark" : "light")"
++                            attachment.lifetime = .keepAlways
++                            add(attachment)
++                        }
++                        hud.removeFromSuperview()
++                    }
++                    window.isHidden = true
++                    window.rootViewController = nil
++                }
++            }
++        }
++    }
++
++    @MainActor
++    func testGlanceRetainsHUDsAndRestoresOriginalLayout() {
++        let hud = StatusBarHUDView(frame: CGRect(x: 0, y: 0, width: 390, height: 74))
++        let cgm = hud.cgmStatusHUD!
++        let pump = hud.pumpStatusHUD!
++        let loop = hud.loopCompletionHUD!
++        let originalFont = cgm.glucoseValueHUD.glucoseLabel.font
++        let originalSpacing = hud.containerView.spacing
++        let originalConstraints = hud.containerView.constraints
++        let tap = UITapGestureRecognizer()
++        cgm.addGestureRecognizer(tap)
++
++        // An old reading must remain stale through every presentation change.
++        cgm.setGlucoseQuantity(112, at: Date().addingTimeInterval(-3600),
++                              unit: HKUnit(from: "mg/dL"), staleGlucoseAge: 600,
++                              glucoseDisplay: nil, wasUserEntered: false, isDisplayOnly: false)
++        let staleText = cgm.glucoseValueHUD.glucoseLabel.text
++        XCTAssertNotEqual(staleText, "112")
++        for _ in 0..<3 {
++            hud.setGlanceLayout(true)
++            hud.setGlanceLayout(true)
++            XCTAssertTrue(hud.cgmStatusHUD === cgm)
++            XCTAssertTrue(hud.pumpStatusHUD === pump)
++            XCTAssertTrue(hud.loopCompletionHUD === loop)
++            XCTAssertEqual(hud.containerView.axis, .vertical)
++            XCTAssertTrue(cgm.gestureRecognizers?.contains(tap) == true)
++            XCTAssertEqual(cgm.glucoseValueHUD.glucoseLabel.text, staleText)
++            hud.setGlanceLayout(false)
++            XCTAssertEqual(hud.containerView.axis, .horizontal)
++            XCTAssertEqual(hud.containerView.arrangedSubviews.count, 3)
++            XCTAssertTrue(hud.containerView.arrangedSubviews[0] === cgm)
++            XCTAssertTrue(hud.containerView.arrangedSubviews[1] === loop)
++            XCTAssertTrue(hud.containerView.arrangedSubviews[2] === pump)
++            XCTAssertEqual(cgm.glucoseValueHUD.glucoseLabel.font, originalFont)
++            XCTAssertEqual(hud.containerView.spacing, originalSpacing)
++            XCTAssertTrue(originalConstraints.allSatisfy { $0.isActive })
++        }
++    }
++
++    @MainActor
++    func testGlanceLayoutAtPhoneWidths() {
++        for width in [CGFloat(320), 390, 430] {
++            let hud = StatusBarHUDView(frame: CGRect(x: 0, y: 0, width: width, height: 74))
++            hud.cgmStatusHUD.glucoseValueHUD.glucoseLabel.text = "112"
++            hud.cgmStatusHUD.glucoseValueHUD.unitLabel.text = "mg/dL"
++            hud.setGlanceLayout(true)
++            let size = hud.systemLayoutSizeFitting(CGSize(width: width, height: 0),
++                withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
++            hud.frame.size = size
++            hud.layoutIfNeeded()
++            XCTAssertGreaterThanOrEqual(size.height, 148)
++            XCTAssertEqual(size.width, width, accuracy: 1)
++            let label = hud.cgmStatusHUD.glucoseValueHUD.glucoseLabel!
++            let labelRect = label.convert(label.bounds, to: hud)
++            XCTAssertGreaterThanOrEqual(labelRect.minX, 0)
++            XCTAssertLessThanOrEqual(labelRect.maxX, width)
++            let renderer = UIGraphicsImageRenderer(size: size)
++            let image = renderer.image { hud.layer.render(in: $0.cgContext) }
++            let attachment = XCTAttachment(image: image)
++            attachment.name = "Glance-HUD-\(Int(width))"
++            attachment.lifetime = .keepAlways
++            add(attachment)
++        }
++    }
++}
+ 
+ extension XCTestCase {
+     
+diff --git a/Loop/LoopUI/Views/DeviceStatusHUDView.swift b/Loop/LoopUI/Views/DeviceStatusHUDView.swift
+index 904f9d4..4d9d37e 100644
+--- a/Loop/LoopUI/Views/DeviceStatusHUDView.swift
++++ b/Loop/LoopUI/Views/DeviceStatusHUDView.swift
+@@ -46,6 +46,11 @@ import LoopKitUI
+     
+     @IBOutlet weak var statusStackView: UIStackView!
+     
++    /// Presentation only; status highlights, progress colors and labels remain native.
++    public func setDashboardSurface(_ color: UIColor?) {
++        backgroundView.backgroundColor = color ?? .systemBackground
++    }
++
+     public var lifecycleProgress: DeviceLifecycleProgress? {
+         didSet {
+             guard let lifecycleProgress = lifecycleProgress else {
+diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
+index 3bd851e..e1790af 100644
+--- a/Loop/LoopUI/Views/StatusBarHUDView.swift
++++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
+@@ -9,6 +9,51 @@
+ import UIKit
+ import LoopKitUI
+ 
++/// Decorative presentation only. Never used to convey glucose or delivery status.
++public enum DashboardPresentation: CaseIterable {
++    case original, orbit, missionControl, eclipse, aurora, telemetry, zenith
++
++    public var accent: UIColor {
++        switch self {
++        case .original: return .secondaryLabel
++        case .orbit: return .systemBlue
++        case .missionControl: return .systemTeal
++        case .eclipse: return .systemPurple
++        case .aurora: return .systemMint
++        case .telemetry: return .systemCyan
++        case .zenith: return .systemIndigo
++        }
++    }
++
++    public var surface: UIColor {
++        UIColor { traits in
++            switch self {
++            case .original: return .secondarySystemBackground
++            case .orbit: return traits.userInterfaceStyle == .dark
++                ? UIColor(red: 0.035, green: 0.065, blue: 0.115, alpha: 1)
++                : UIColor(red: 0.94, green: 0.97, blue: 1, alpha: 1)
++            case .missionControl: return traits.userInterfaceStyle == .dark
++                ? UIColor(red: 0.035, green: 0.085, blue: 0.095, alpha: 1)
++                : UIColor(red: 0.94, green: 0.98, blue: 0.98, alpha: 1)
++            case .eclipse, .aurora, .telemetry, .zenith:
++                return traits.userInterfaceStyle == .dark ? UIColor(red: 0.025, green: 0.03, blue: 0.055, alpha: 1) : .secondarySystemBackground
++            }
++        }
++    }
++
++    public var cornerRadius: CGFloat {
++        switch self {
++        case .original: return 0
++        case .orbit: return 22
++        case .missionControl: return 10
++        case .eclipse: return 0
++        case .aurora: return 24
++        case .telemetry: return 6
++        case .zenith: return 28
++        }
++    }
++}
++
+ public class StatusBarHUDView: UIView, NibLoadable {
+     
+     @IBOutlet public weak var cgmStatusHUD: CGMStatusHUDView!
+@@ -18,13 +63,144 @@ public class StatusBarHUDView: UIView, NibLoadable {
+     @IBOutlet public weak var pumpStatusHUD: PumpStatusHUDView!
+         
+     public var containerView: UIStackView!
++
++    private let identityLabel = UILabel()
++    private var identityHeight: NSLayoutConstraint!
++    private var presentation: DashboardPresentation = .original
++
++    public func setDashboardPresentation(_ presentation: DashboardPresentation) {
++        if originalGlucoseFont == nil { originalGlucoseFont = cgmStatusHUD.glucoseValueHUD.glucoseLabel.font }
++        self.presentation = presentation
++        identityLabel.text = nil
++        identityLabel.textColor = .secondaryLabel
++        identityHeight.constant = 0
++        // A single compact row leaves room for every graph on the dashboard.
++        let layout = presentation != .original && traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 1 : 0
++        setHUDLayout(layout)
++        if presentation != .original {
++            let size: CGFloat = presentation == .zenith ? (bounds.width < 350 ? 32 : 36) : 30
++            cgmStatusHUD.glucoseValueHUD.glucoseLabel.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(
++                for: .systemFont(ofSize: size, weight: .bold), maximumPointSize: 40, compatibleWith: traitCollection)
++        }
++        if presentation == .original { cgmStatusHUD.glucoseValueHUD.glucoseLabel.font = originalGlucoseFont }
++        setNeedsLayout()
++        invalidateIntrinsicContentSize()
++        cgmStatusHUD.setDashboardSurface(presentation == .original ? nil : .clear)
++        pumpStatusHUD.setDashboardSurface(presentation == .original ? nil : .clear)
++        spaceBackdrop.isHidden = presentation == .original
++        spaceBackdrop.accent = presentation.accent
++        spaceBackdrop.setNeedsDisplay()
++        backgroundColor = presentation.surface
++        layer.cornerRadius = 0
++        // Keep the original HUD colors: these carry actual device and glucose status.
++        layer.borderWidth = 0
++        layer.borderColor = presentation.accent.withAlphaComponent(0.3).resolvedColor(with: traitCollection).cgColor
++    }
++
++    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
++        super.traitCollectionDidChange(previousTraitCollection)
++        if identityHeight != nil,
++           previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
++            setDashboardPresentation(presentation)
++        }
++        layer.borderColor = presentation.accent.withAlphaComponent(0.3).resolvedColor(with: traitCollection).cgColor
++    }
++
++    private var glanceStatusRow: UIStackView?
++    private var glanceConstraints: [NSLayoutConstraint] = []
++    private var originalGlucoseFont: UIFont?
++    private var originalHUDConstraints: [NSLayoutConstraint]?
++    private var isGlanceLayout = false
++    private var hudLayout = 0
++    private let spaceBackdrop = DashboardSpaceBackdrop()
++
++
++    /// Rearranges the existing HUD views, retaining their warning, staleness,
++    /// accessibility and tap behavior. Does not create another glucose data path.
++    public func setGlanceLayout(_ enabled: Bool) {
++        setHUDLayout(enabled ? 1 : 0)
++    }
++
++    private func setHUDLayout(_ layout: Int) {
++        guard layout != hudLayout else { return }
++        hudLayout = layout
++        let enabled = layout != 0
++        isGlanceLayout = enabled
++        let glucoseLabel = cgmStatusHUD.glucoseValueHUD.glucoseLabel!
++        if originalGlucoseFont == nil { originalGlucoseFont = glucoseLabel.font }
++
++        // Retain the views while moving them because the outlets are weak.
++        let cgm = cgmStatusHUD!
++        let loop = loopCompletionHUD!
++        let pump = pumpStatusHUD!
++        if originalHUDConstraints == nil {
++            // Removing arranged views also removes constraints between them.
++            // Save the nib's equal-width constraint so Original restores exactly.
++            originalHUDConstraints = containerView.constraints.filter {
++                $0.firstAttribute == .width && $0.secondAttribute == .width &&
++                    ((($0.firstItem as? UIView) === pump && ($0.secondItem as? UIView) === cgm) ||
++                     (($0.firstItem as? UIView) === cgm && ($0.secondItem as? UIView) === pump))
++            }
++        }
++        NSLayoutConstraint.deactivate(originalHUDConstraints ?? [])
++        NSLayoutConstraint.deactivate(glanceConstraints)
++        glanceConstraints = []
++        for view in containerView.arrangedSubviews {
++            containerView.removeArrangedSubview(view)
++            view.removeFromSuperview()
++        }
++        if let row = glanceStatusRow {
++            for view in row.arrangedSubviews {
++                row.removeArrangedSubview(view)
++                view.removeFromSuperview()
++            }
++        }
++        glanceStatusRow = nil
++
++        if enabled {
++            containerView.axis = layout == 2 ? .horizontal : .vertical
++            containerView.spacing = 8
++            let row = UIStackView(arrangedSubviews: [loop, pump])
++            row.axis = layout == 2 ? .vertical : .horizontal
++            row.spacing = 8
++            if layout == 3 {
++                containerView.addArrangedSubview(row)
++                containerView.addArrangedSubview(cgm)
++            } else {
++                containerView.addArrangedSubview(cgm)
++                containerView.addArrangedSubview(row)
++            }
++            glanceStatusRow = row
++            glucoseLabel.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(
++                for: .systemFont(ofSize: 44, weight: .bold), maximumPointSize: 58)
++            glanceConstraints = [
++                cgm.glucoseValueHUD.heightAnchor.constraint(greaterThanOrEqualToConstant: 74),
++                row.heightAnchor.constraint(greaterThanOrEqualToConstant: 74)
++            ]
++            if layout == 2 {
++                glanceConstraints.append(cgm.widthAnchor.constraint(equalTo: row.widthAnchor))
++            }
++            NSLayoutConstraint.activate(glanceConstraints)
++        } else {
++            containerView.axis = .horizontal
++            containerView.spacing = adjustViewsForNarrowDisplay ? 8 : 16
++            containerView.addArrangedSubview(cgm)
++            containerView.addArrangedSubview(loop)
++            containerView.addArrangedSubview(pump)
++            glucoseLabel.font = originalGlucoseFont
++            NSLayoutConstraint.activate(originalHUDConstraints ?? [])
++        }
++        setNeedsLayout()
++        invalidateIntrinsicContentSize()
++    }
++
+     
+     public var adjustViewsForNarrowDisplay: Bool = false {
+         didSet {
+             if adjustViewsForNarrowDisplay != oldValue {
+                 cgmStatusHUD.adjustViewsForNarrowDisplay = adjustViewsForNarrowDisplay
+                 pumpStatusHUD.adjustViewsForNarrowDisplay = adjustViewsForNarrowDisplay
+-                containerView.spacing = adjustViewsForNarrowDisplay ? 8.0 : 16.0
++                containerView.spacing = isGlanceLayout ? 4 : (adjustViewsForNarrowDisplay ? 8.0 : 16.0)
+             }
+         }
+     }
+@@ -48,20 +224,39 @@ public class StatusBarHUDView: UIView, NibLoadable {
+     
+     func setup() {
+         containerView = (StatusBarHUDView.nib().instantiate(withOwner: self, options: nil)[0] as! UIStackView)
++        spaceBackdrop.isUserInteractionEnabled = false
++        spaceBackdrop.isAccessibilityElement = false
++        spaceBackdrop.isHidden = true
++        spaceBackdrop.backgroundColor = .clear
++        insertSubview(spaceBackdrop, at: 0)
+         containerView.translatesAutoresizingMaskIntoConstraints = false
+         self.addSubview(containerView)
++        identityLabel.font = .systemFont(ofSize: 12, weight: .semibold)
++        identityLabel.accessibilityElementsHidden = true
++        identityLabel.translatesAutoresizingMaskIntoConstraints = false
++        addSubview(identityLabel)
++        identityHeight = identityLabel.heightAnchor.constraint(equalToConstant: 0)
+ 
+         // Use AutoLayout to have the stack view fill its entire container.
+         NSLayoutConstraint.activate([
+             containerView.centerXAnchor.constraint(equalTo: centerXAnchor),
+-            containerView.centerYAnchor.constraint(equalTo: centerYAnchor),
++            identityLabel.topAnchor.constraint(equalTo: topAnchor),
++            identityLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
++            identityLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
++            identityHeight,
++            containerView.topAnchor.constraint(equalTo: identityLabel.bottomAnchor),
+             containerView.widthAnchor.constraint(equalTo: widthAnchor),
+-            containerView.heightAnchor.constraint(equalTo: heightAnchor),
++            containerView.bottomAnchor.constraint(equalTo: bottomAnchor),
+         ])
+         
+         self.backgroundColor = UIColor.secondarySystemBackground
+     }
+         
++    public override func layoutSubviews() {
++        super.layoutSubviews()
++        spaceBackdrop.frame = bounds
++    }
++
+     public func removePumpManagerProvidedView() {
+         pumpStatusHUD.removePumpManagerProvidedHUD()
+     }
+@@ -70,3 +265,29 @@ public class StatusBarHUDView: UIView, NibLoadable {
+         pumpStatusHUD.addPumpManagerProvidedHUDView(pumpManagerProvidedHUD)
+     }
+ }
++
++/// Static decorative artwork. It never encodes a medical measurement or status.
++private final class DashboardSpaceBackdrop: UIView {
++    var accent: UIColor = .systemBlue
++
++    override func draw(_ rect: CGRect) {
++        guard let context = UIGraphicsGetCurrentContext() else { return }
++        context.saveGState()
++        context.clip(to: rect)
++        let colors = [accent.withAlphaComponent(0.20).cgColor, UIColor.clear.cgColor] as CFArray
++        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
++            context.drawRadialGradient(gradient, startCenter: CGPoint(x: rect.width * 0.85, y: rect.height),
++                startRadius: 0, endCenter: CGPoint(x: rect.width * 0.85, y: rect.height),
++                endRadius: rect.width * 0.9, options: [])
++        }
++        context.setStrokeColor(accent.withAlphaComponent(0.35).cgColor)
++        context.setLineWidth(1)
++        context.strokeEllipse(in: CGRect(x: rect.width * 0.35, y: rect.height * 0.60,
++                                         width: rect.width, height: rect.width * 0.45))
++        if traitCollection.userInterfaceStyle == .dark,
++           let image = UIImage(named: "DashboardHorizon", in: .main, compatibleWith: traitCollection) {
++            image.draw(in: rect, blendMode: .normal, alpha: 0.25)
++        }
++        context.restoreGState()
++    }
++}
