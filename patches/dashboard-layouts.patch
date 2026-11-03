@@ -1,8 +1,8 @@
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..9f8e312 100644
+index 580d67e..f1d04c2 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
-@@ -29,6 +29,112 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -29,6 +29,110 @@ final class StatusTableViewController: LoopChartsTableViewController {
  
      private let log = OSLog(category: "StatusTableViewController")
  
@@ -28,12 +28,10 @@ index 580d67e..9f8e312 100644
 +            cell.backgroundConfiguration = nil
 +            return
 +        }
-+        let style = dashboardLayout.presentation
 +        var card = UIBackgroundConfiguration.clear()
 +        card.backgroundColor = .secondarySystemGroupedBackground
 +        card.cornerRadius = 20
 +        card.backgroundInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
-+        card.strokeColor = style.accent.withAlphaComponent(dashboardLayout == .compact ? 0.2 : 0.35)
 +        card.strokeColor = .separator
 +        card.strokeWidth = 0.5
 +        cell.backgroundConfiguration = card
@@ -115,7 +113,7 @@ index 580d67e..9f8e312 100644
      lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
  
      var onboardingManager: OnboardingManager!
-@@ -67,6 +173,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -67,6 +171,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
          let notificationCenter = NotificationCenter.default
  
          notificationObservers += [
@@ -125,7 +123,7 @@ index 580d67e..9f8e312 100644
              notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
                  let rawContext = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
                  let context = LoopDataManager.LoopUpdateContext(rawValue: rawContext)
-@@ -165,6 +274,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -165,6 +272,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
          navigationController?.setToolbarHidden(false, animated: animated)
          
          updateToolbarItems()
@@ -133,7 +131,7 @@ index 580d67e..9f8e312 100644
  
          alertPermissionsChecker.checkNow()
  
-@@ -1017,6 +1127,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1017,6 +1125,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              }
          case .hud:
              let cell = tableView.dequeueReusableCell(withIdentifier: HUDViewTableViewCell.className, for: indexPath) as! HUDViewTableViewCell
@@ -141,7 +139,7 @@ index 580d67e..9f8e312 100644
              hudView = cell.hudView
  
              return cell
-@@ -1026,23 +1137,35 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1026,23 +1135,35 @@ final class StatusTableViewController: LoopChartsTableViewController {
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
                  cell.setChartGenerator(generator: { [weak self] (frame) in
@@ -181,7 +179,7 @@ index 580d67e..9f8e312 100644
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Active Carbohydrates", comment: "The title of the Carbs On-Board graph"))
              }
-@@ -1053,6 +1176,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1053,6 +1174,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              cell.setAlpha(alpha: alpha)
  
              cell.setSubtitleTextColor(color: UIColor.secondaryLabel)
@@ -189,7 +187,7 @@ index 580d67e..9f8e312 100644
  
              return cell
          case .status:
-@@ -1179,7 +1303,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1179,7 +1301,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
                  if let eventualGlucose = eventualGlucoseDescription {
@@ -198,7 +196,7 @@ index 580d67e..9f8e312 100644
                  } else {
                      cell.setSubtitleLabel(label: nil)
                  }
-@@ -1222,11 +1346,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1222,11 +1344,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
              var availableSize = max(tableView.bounds.width, tableView.bounds.height)
              availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
  
@@ -216,7 +214,7 @@ index 580d67e..9f8e312 100644
 +            case .graphFirst:
 +                return max(isGlucose ? 400 : 180, (isGlucose ? 0.62 : 0.18) * availableSize)
 +            case .aurora:
-+                return max(isGlucose ? 310 : 175, (isGlucose ? 0.42 : 0.22) * availableSize)
++                return max(isGlucose ? 310 : 190, (isGlucose ? 0.42 : 0.22) * availableSize)
 +            case .telemetry:
 +                return max(isGlucose ? 320 : 220, (isGlucose ? 0.36 : 0.25) * availableSize)
 +            case .zenith:
@@ -224,7 +222,7 @@ index 580d67e..9f8e312 100644
 +            case .compact:
 +                // Keep labels and graph gestures usable at larger text sizes.
 +                let minimum: CGFloat = traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 160 : 106
-+                return max(isGlucose ? 300 : max(minimum, 170), (isGlucose ? 0.42 : 0.14) * availableSize)
++                return max(isGlucose ? 300 : max(minimum, 190), (isGlucose ? 0.42 : 0.14) * availableSize)
              }
          case .hud, .status, .alertWarning:
              return UITableView.automaticDimension
