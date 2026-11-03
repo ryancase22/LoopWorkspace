@@ -1,5 +1,5 @@
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..83976ec 100644
+index 580d67e..e8b1ad6 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
 @@ -29,6 +29,38 @@ final class StatusTableViewController: LoopChartsTableViewController {
@@ -75,7 +75,7 @@ index 580d67e..83976ec 100644
  
              return cell
          case .status:
-@@ -1222,11 +1260,18 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1222,11 +1260,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
              var availableSize = max(tableView.bounds.width, tableView.bounds.height)
              availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
  
@@ -92,6 +92,12 @@ index 580d67e..83976ec 100644
 +                return max(106, (isGlucose ? 0.43 : 0.20) * availableSize)
 +            case .graphFirst:
 +                return max(isGlucose ? 220 : 106, (isGlucose ? 0.55 : 0.18) * availableSize)
++            case .aurora:
++                return max(isGlucose ? 240 : 120, (isGlucose ? 0.42 : 0.22) * availableSize)
++            case .telemetry:
++                return max(isGlucose ? 210 : 145, (isGlucose ? 0.36 : 0.25) * availableSize)
++            case .zenith:
++                return max(isGlucose ? 300 : 120, (isGlucose ? 0.65 : 0.18) * availableSize)
 +            case .compact:
 +                // Keep labels and graph gestures usable at larger text sizes.
 +                let minimum: CGFloat = traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 160 : 106
@@ -100,7 +106,7 @@ index 580d67e..83976ec 100644
          case .hud, .status, .alertWarning:
              return UITableView.automaticDimension
 diff --git a/Loop/Loop/Views/SettingsView.swift b/Loop/Loop/Views/SettingsView.swift
-index 9f9e3aa..8c1f526 100644
+index 9f9e3aa..918f3f1 100644
 --- a/Loop/Loop/Views/SettingsView.swift
 +++ b/Loop/Loop/Views/SettingsView.swift
 @@ -7,6 +7,7 @@
@@ -201,14 +207,14 @@ index 9f9e3aa..8c1f526 100644
      private var softwareUpdateSection: some View {
          Section(footer: Text(viewModel.versionUpdateViewModel.footer(appName: appName))) {
              NavigationLink(destination: viewModel.versionUpdateViewModel.softwareUpdateView) {
-@@ -698,3 +768,41 @@ public struct SettingsView_Previews: PreviewProvider {
+@@ -698,3 +768,50 @@ public struct SettingsView_Previews: PreviewProvider {
          }
      }
  }
 +
 +// Local presentation preference only; deliberately separate from therapy settings.
 +enum DashboardLayout: String, CaseIterable {
-+    case original, glance, graphFirst, compact
++    case original, glance, graphFirst, compact, aurora, telemetry, zenith
 +
 +    static let preferenceKey = "com.ryancase.loop.dashboardLayout.v1"
 +
@@ -222,6 +228,9 @@ index 9f9e3aa..8c1f526 100644
 +        case .glance: return .orbit
 +        case .graphFirst: return .missionControl
 +        case .compact: return .eclipse
++        case .aurora: return .aurora
++        case .telemetry: return .telemetry
++        case .zenith: return .zenith
 +        }
 +    }
 +
@@ -231,6 +240,9 @@ index 9f9e3aa..8c1f526 100644
 +        case .glance: return "Orbit"
 +        case .graphFirst: return "Mission Control"
 +        case .compact: return "Eclipse"
++        case .aurora: return "Aurora"
++        case .telemetry: return "Telemetry"
++        case .zenith: return "Zenith"
 +        }
 +    }
 +
@@ -239,15 +251,18 @@ index 9f9e3aa..8c1f526 100644
 +        case .original: return "The standard Loop dashboard."
 +        case .glance: return "Prominent glucose, blue accents, and rounded chart cards."
 +        case .graphFirst: return "A wide-view glucose chart with a compact status header."
-+        case .compact: return "Quiet graphite styling with compact, readable charts."
++        case .compact: return "An open glucose header with compact charts."
++        case .aurora: return "Split glucose and device status, with balanced charts."
++        case .telemetry: return "Device status first, then glucose and delivery charts."
++        case .zenith: return "A bold glucose header and the largest glucose chart."
 +        }
 +    }
 +}
 diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
-index b29b1d5..0ccdb89 100644
+index b29b1d5..87d384d 100644
 --- a/Loop/LoopTests/LoopTests.swift
 +++ b/Loop/LoopTests/LoopTests.swift
-@@ -7,10 +7,179 @@
+@@ -7,10 +7,182 @@
  //
  
  import XCTest
@@ -260,6 +275,8 @@ index b29b1d5..0ccdb89 100644
 -class LoopTests: XCTestCase {}
 +class LoopTests: XCTestCase {
 +    func testDashboardPreferenceDefaultsAndRoundTrip() {
++        XCTAssertEqual(DashboardLayout.allCases.count, 7)
++        XCTAssertEqual(Set(DashboardLayout.allCases.map { $0.title }).count, 7)
 +        let defaults = UserDefaults.standard
 +        let key = DashboardLayout.preferenceKey
 +        let previous = defaults.object(forKey: key)
@@ -328,6 +345,7 @@ index b29b1d5..0ccdb89 100644
 +                        accessibility ? .accessibilityExtraExtraExtraLarge : .large), forChild: child)
 +                    for style in DashboardPresentation.allCases {
 +                        let hud = StatusBarHUDView(frame: CGRect(x: 0, y: 0, width: width, height: 74))
++                        hud.overrideUserInterfaceStyle = dark ? .dark : .light
 +                        child.view.addSubview(hud)
 +                        hud.cgmStatusHUD.glucoseValueHUD.glucoseLabel.text = "112"
 +                        hud.cgmStatusHUD.glucoseValueHUD.unitLabel.text = "mg/dL"
@@ -428,24 +446,43 @@ index b29b1d5..0ccdb89 100644
  
  extension XCTestCase {
      
+diff --git a/Loop/LoopUI/Views/DeviceStatusHUDView.swift b/Loop/LoopUI/Views/DeviceStatusHUDView.swift
+index 904f9d4..4d9d37e 100644
+--- a/Loop/LoopUI/Views/DeviceStatusHUDView.swift
++++ b/Loop/LoopUI/Views/DeviceStatusHUDView.swift
+@@ -46,6 +46,11 @@ import LoopKitUI
+     
+     @IBOutlet weak var statusStackView: UIStackView!
+     
++    /// Presentation only; status highlights, progress colors and labels remain native.
++    public func setDashboardSurface(_ color: UIColor?) {
++        backgroundView.backgroundColor = color ?? .systemBackground
++    }
++
+     public var lifecycleProgress: DeviceLifecycleProgress? {
+         didSet {
+             guard let lifecycleProgress = lifecycleProgress else {
 diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
-index 3bd851e..00ce6bd 100644
+index 3bd851e..a59e855 100644
 --- a/Loop/LoopUI/Views/StatusBarHUDView.swift
 +++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
-@@ -9,6 +9,44 @@
+@@ -9,6 +9,51 @@
  import UIKit
  import LoopKitUI
  
 +/// Decorative presentation only. Never used to convey glucose or delivery status.
 +public enum DashboardPresentation: CaseIterable {
-+    case original, orbit, missionControl, eclipse
++    case original, orbit, missionControl, eclipse, aurora, telemetry, zenith
 +
 +    public var accent: UIColor {
 +        switch self {
 +        case .original: return .secondaryLabel
 +        case .orbit: return .systemBlue
 +        case .missionControl: return .systemTeal
-+        case .eclipse: return .systemGray
++        case .eclipse: return .systemPurple
++        case .aurora: return .systemMint
++        case .telemetry: return .systemCyan
++        case .zenith: return .systemIndigo
 +        }
 +    }
 +
@@ -459,7 +496,8 @@ index 3bd851e..00ce6bd 100644
 +            case .missionControl: return traits.userInterfaceStyle == .dark
 +                ? UIColor(red: 0.035, green: 0.085, blue: 0.095, alpha: 1)
 +                : UIColor(red: 0.94, green: 0.98, blue: 0.98, alpha: 1)
-+            case .eclipse: return .secondarySystemBackground
++            case .eclipse, .aurora, .telemetry, .zenith:
++                return traits.userInterfaceStyle == .dark ? UIColor(red: 0.025, green: 0.03, blue: 0.055, alpha: 1) : .secondarySystemBackground
 +            }
 +        }
 +    }
@@ -469,7 +507,10 @@ index 3bd851e..00ce6bd 100644
 +        case .original: return 0
 +        case .orbit: return 22
 +        case .missionControl: return 10
-+        case .eclipse: return 16
++        case .eclipse: return 0
++        case .aurora: return 24
++        case .telemetry: return 6
++        case .zenith: return 28
 +        }
 +    }
 +}
@@ -477,7 +518,7 @@ index 3bd851e..00ce6bd 100644
  public class StatusBarHUDView: UIView, NibLoadable {
      
      @IBOutlet public weak var cgmStatusHUD: CGMStatusHUDView!
-@@ -18,13 +56,102 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -18,13 +63,136 @@ public class StatusBarHUDView: UIView, NibLoadable {
      @IBOutlet public weak var pumpStatusHUD: PumpStatusHUDView!
          
      public var containerView: UIStackView!
@@ -486,7 +527,24 @@ index 3bd851e..00ce6bd 100644
 +
 +    public func setDashboardPresentation(_ presentation: DashboardPresentation) {
 +        self.presentation = presentation
-+        setGlanceLayout(presentation == .orbit)
++        let layout: Int
++        switch presentation {
++        case .original, .missionControl: layout = 0
++        case .orbit, .eclipse, .zenith: layout = 1
++        case .aurora: layout = 2
++        case .telemetry: layout = 3
++        }
++        setHUDLayout(layout)
++        if presentation != .original {
++            let size: CGFloat = presentation == .zenith ? 52 : (layout == 1 ? 44 : 28)
++            cgmStatusHUD.glucoseValueHUD.glucoseLabel.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(
++                for: .systemFont(ofSize: size, weight: .bold), maximumPointSize: 64, compatibleWith: traitCollection)
++        }
++        cgmStatusHUD.setDashboardSurface(presentation == .original ? nil : .clear)
++        pumpStatusHUD.setDashboardSurface(presentation == .original ? nil : .clear)
++        spaceBackdrop.isHidden = presentation == .original
++        spaceBackdrop.accent = presentation.accent
++        spaceBackdrop.setNeedsDisplay()
 +        backgroundColor = presentation.surface
 +        layer.cornerRadius = presentation.cornerRadius
 +        // Keep the original HUD colors: these carry actual device and glucose status.
@@ -504,11 +562,20 @@ index 3bd851e..00ce6bd 100644
 +    private var originalGlucoseFont: UIFont?
 +    private var originalHUDConstraints: [NSLayoutConstraint]?
 +    private var isGlanceLayout = false
++    private var hudLayout = 0
++    private let spaceBackdrop = DashboardSpaceBackdrop()
++
 +
 +    /// Rearranges the existing HUD views, retaining their warning, staleness,
 +    /// accessibility and tap behavior. Does not create another glucose data path.
 +    public func setGlanceLayout(_ enabled: Bool) {
-+        guard enabled != isGlanceLayout else { return }
++        setHUDLayout(enabled ? 1 : 0)
++    }
++
++    private func setHUDLayout(_ layout: Int) {
++        guard layout != hudLayout else { return }
++        hudLayout = layout
++        let enabled = layout != 0
 +        isGlanceLayout = enabled
 +        let glucoseLabel = cgmStatusHUD.glucoseValueHUD.glucoseLabel!
 +        if originalGlucoseFont == nil { originalGlucoseFont = glucoseLabel.font }
@@ -542,13 +609,18 @@ index 3bd851e..00ce6bd 100644
 +        glanceStatusRow = nil
 +
 +        if enabled {
-+            containerView.axis = .vertical
-+            containerView.spacing = 4
++            containerView.axis = layout == 2 ? .horizontal : .vertical
++            containerView.spacing = 8
 +            let row = UIStackView(arrangedSubviews: [loop, pump])
-+            row.axis = .horizontal
-+            row.spacing = 16
-+            containerView.addArrangedSubview(cgm)
-+            containerView.addArrangedSubview(row)
++            row.axis = layout == 2 ? .vertical : .horizontal
++            row.spacing = 8
++            if layout == 3 {
++                containerView.addArrangedSubview(row)
++                containerView.addArrangedSubview(cgm)
++            } else {
++                containerView.addArrangedSubview(cgm)
++                containerView.addArrangedSubview(row)
++            }
 +            glanceStatusRow = row
 +            glucoseLabel.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(
 +                for: .systemFont(ofSize: 44, weight: .bold), maximumPointSize: 58)
@@ -556,6 +628,9 @@ index 3bd851e..00ce6bd 100644
 +                cgm.glucoseValueHUD.heightAnchor.constraint(greaterThanOrEqualToConstant: 74),
 +                row.heightAnchor.constraint(greaterThanOrEqualToConstant: 74)
 +            ]
++            if layout == 2 {
++                glanceConstraints.append(cgm.widthAnchor.constraint(equalTo: row.widthAnchor))
++            }
 +            NSLayoutConstraint.activate(glanceConstraints)
 +        } else {
 +            containerView.axis = .horizontal
@@ -581,3 +656,60 @@ index 3bd851e..00ce6bd 100644
              }
          }
      }
+@@ -48,6 +216,11 @@ public class StatusBarHUDView: UIView, NibLoadable {
+     
+     func setup() {
+         containerView = (StatusBarHUDView.nib().instantiate(withOwner: self, options: nil)[0] as! UIStackView)
++        spaceBackdrop.isUserInteractionEnabled = false
++        spaceBackdrop.isAccessibilityElement = false
++        spaceBackdrop.isHidden = true
++        spaceBackdrop.backgroundColor = .clear
++        insertSubview(spaceBackdrop, at: 0)
+         containerView.translatesAutoresizingMaskIntoConstraints = false
+         self.addSubview(containerView)
+ 
+@@ -62,6 +235,11 @@ public class StatusBarHUDView: UIView, NibLoadable {
+         self.backgroundColor = UIColor.secondarySystemBackground
+     }
+         
++    public override func layoutSubviews() {
++        super.layoutSubviews()
++        spaceBackdrop.frame = bounds
++    }
++
+     public func removePumpManagerProvidedView() {
+         pumpStatusHUD.removePumpManagerProvidedHUD()
+     }
+@@ -70,3 +248,32 @@ public class StatusBarHUDView: UIView, NibLoadable {
+         pumpStatusHUD.addPumpManagerProvidedHUDView(pumpManagerProvidedHUD)
+     }
+ }
++
++/// Static decorative artwork. It never encodes a medical measurement or status.
++private final class DashboardSpaceBackdrop: UIView {
++    var accent: UIColor = .systemBlue
++
++    override func draw(_ rect: CGRect) {
++        guard let context = UIGraphicsGetCurrentContext() else { return }
++        context.saveGState()
++        context.clip(to: rect)
++        let colors = [accent.withAlphaComponent(0.20).cgColor, UIColor.clear.cgColor] as CFArray
++        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
++            context.drawRadialGradient(gradient, startCenter: CGPoint(x: rect.width * 0.85, y: rect.height),
++                startRadius: 0, endCenter: CGPoint(x: rect.width * 0.85, y: rect.height),
++                endRadius: rect.width * 0.9, options: [])
++        }
++        context.setStrokeColor(accent.withAlphaComponent(0.35).cgColor)
++        context.setLineWidth(1)
++        context.strokeEllipse(in: CGRect(x: rect.width * 0.35, y: rect.height * 0.60,
++                                         width: rect.width, height: rect.width * 0.45))
++        // A fixed star pattern, with no animation behind readings.
++        context.setFillColor(UIColor.secondaryLabel.withAlphaComponent(0.22).cgColor)
++        for index in 0..<14 {
++            let x = CGFloat((index * 73 + 19) % 311) / 311 * rect.width
++            let y = CGFloat((index * 47 + 11) % 173) / 173 * rect.height
++            context.fillEllipse(in: CGRect(x: x, y: y, width: 1.5, height: 1.5))
++        }
++        context.restoreGState()
++    }
++}
