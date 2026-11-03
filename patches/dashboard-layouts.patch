@@ -1,5 +1,5 @@
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..4ab1ba6 100644
+index 580d67e..0f97c86 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
 @@ -29,6 +29,95 @@ final class StatusTableViewController: LoopChartsTableViewController {
@@ -82,6 +82,8 @@ index 580d67e..4ab1ba6 100644
 +    override func viewDidLayoutSubviews() {
 +        super.viewDidLayoutSubviews()
 +        guard dashboardLayout != .original, !updatingCardHeights else { return }
++        updatingCardHeights = true
++        defer { updatingCardHeights = false }
 +        cardSectionChrome = ceil(Section.allCases.reduce(CGFloat(0)) { result, section in
 +            result + tableView.rectForHeader(inSection: section.rawValue).height
 +                + tableView.rectForFooter(inSection: section.rawValue).height
@@ -89,10 +91,8 @@ index 580d67e..4ab1ba6 100644
 +        let budget = cardHeightBudget
 +        guard lastCardHeightBudget != budget else { return }
 +        lastCardHeightBudget = budget
-+        updatingCardHeights = true
 +        tableView.beginUpdates()
 +        tableView.endUpdates()
-+        updatingCardHeights = false
 +    }
 +
      lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
