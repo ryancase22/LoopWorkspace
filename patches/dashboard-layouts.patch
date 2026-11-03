@@ -1,8 +1,8 @@
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..f1d04c2 100644
+index 580d67e..4ab1ba6 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
-@@ -29,6 +29,110 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -29,6 +29,95 @@ final class StatusTableViewController: LoopChartsTableViewController {
  
      private let log = OSLog(category: "StatusTableViewController")
  
@@ -12,6 +12,9 @@ index 580d67e..f1d04c2 100644
 +        let selected = DashboardLayout.selected
 +        guard selected != dashboardLayout else { return }
 +        dashboardLayout = selected
++        lastCardHeightBudget = nil
++        tableView.sectionHeaderTopPadding = selected == .original ? (originalSectionHeaderPadding ?? 22) : 0
++        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
 +        hudView?.setDashboardPresentation(selected.presentation)
 +        for cell in tableView.visibleCells where cell is ChartTableViewCell {
 +            applyDashboardCard(to: cell)
@@ -37,83 +40,74 @@ index 580d67e..f1d04c2 100644
 +        cell.backgroundConfiguration = card
 +    }
 +
-+    /// Keep measured/modelled values native; explain each chart in its own card.
-+    func readableChart(withFrame frame: CGRect, explanation: String,
-+                               render: (CGRect) -> UIView?) -> UIView? {
++    /// Preserve the native plot and its complete vertical space. No explanatory text.
++    func cardChart(withFrame frame: CGRect, render: (CGRect) -> UIView?) -> UIView? {
 +        guard dashboardLayout != .original else { return render(frame) }
-+        let font = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: traitCollection)
-+        let inset: CGFloat = 12
-+        let width = max(0, frame.width - inset * 2)
-+        let textHeight = ceil((explanation as NSString).boundingRect(
-+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
-+            options: [.usesLineFragmentOrigin, .usesFontLeading],
-+            attributes: [.font: font], context: nil).height)
-+        let footerHeight = textHeight + 20
-+        guard frame.height - footerHeight >= 100 else { return render(frame) }
-+        let chartFrame = CGRect(x: 0, y: 0, width: width, height: frame.height - footerHeight)
-+        guard let chart = render(chartFrame) else { return nil }
++        let inset: CGFloat = 10
++        let plot = CGRect(x: 0, y: 0, width: max(0, frame.width - inset * 2), height: frame.height - 6)
++        guard let chart = render(plot) else { return nil }
 +        let wrapper = UIView(frame: frame)
 +        chart.frame.origin = CGPoint(x: inset, y: 0)
 +        wrapper.addSubview(chart)
-+        let help = UILabel(frame: CGRect(x: inset, y: chartFrame.height + 4, width: width, height: textHeight))
-+        help.text = explanation
-+        help.font = font
-+        help.adjustsFontForContentSizeCategory = true
-+        help.numberOfLines = 0
-+        help.textColor = .secondaryLabel
-+        wrapper.addSubview(help)
 +        return wrapper
 +    }
 +
-+    // Wrap the existing chart, preserving its time scale, prediction and gestures.
-+    // Summary text uses exactly the descriptions already displayed by the native rows.
-+    private func dashboardGlucoseChart(withFrame frame: CGRect) -> UIView? {
-+        guard dashboardLayout != .original, frame.height >= 210,
-+              !traitCollection.preferredContentSizeCategory.isAccessibilityCategory else {
-+            return statusCharts.glucoseChart(withFrame: frame)?.view
++    private var originalSectionHeaderPadding: CGFloat?
++    private var cardSectionChrome: CGFloat = 0
++    private var lastCardHeightBudget: CGFloat?
++    private var updatingCardHeights = false
++
++    private var cardHeightBudget: CGFloat {
++        let viewport = tableView.bounds.height - tableView.adjustedContentInset.top - tableView.adjustedContentInset.bottom
++        var occupied: CGFloat = (tableView.tableHeaderView?.bounds.height ?? 0) + (tableView.tableFooterView?.bounds.height ?? 0)
++        for section in [Section.alertWarning, .hud, .status] {
++            let cells = tableView.visibleCells.filter {
++                tableView.indexPath(for: $0)?.section == section.rawValue
++            }
++            if !cells.isEmpty {
++                occupied += cells.reduce(0) { $0 + $1.bounds.height }
++            } else {
++                switch section {
++                case .hud: occupied += shouldShowHUD ? 90 : 0
++                case .status: occupied += shouldShowStatus ? 84 : 0
++                case .alertWarning: occupied += shouldShowBannerWarning ? 100 : 0
++                case .charts: break
++                }
++            }
 +        }
-+        let summaryHeight: CGFloat = traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 108 : 74
-+        let chartFrame = CGRect(x: 0, y: 0, width: frame.width, height: max(100, frame.height - summaryHeight))
-+        guard let chart = statusCharts.glucoseChart(withFrame: chartFrame)?.view else { return nil }
-+        let wrapper = UIView(frame: frame)
-+        wrapper.addSubview(chart)
-+        chart.frame = chartFrame
-+        let summary = UIStackView()
-+        summary.axis = .horizontal
-+        summary.distribution = .fillEqually
-+        summary.spacing = 20
-+        summary.frame = CGRect(x: 16, y: chartFrame.maxY + 6, width: max(0, frame.width - 32), height: summaryHeight - 12)
-+        for (title, value, color) in [
-+            ("Insulin active", currentIOBDescription, UIColor.insulinTintColor),
-+            ("Carbs absorbing", currentCOBDescription, UIColor.carbTintColor)
-+        ] {
-+            let heading = UILabel()
-+            heading.text = title
-+            heading.font = .preferredFont(forTextStyle: .caption1)
-+            heading.textColor = .secondaryLabel
-+            heading.adjustsFontForContentSizeCategory = true
-+            let reading = UILabel()
-+            reading.text = value ?? "—"
-+            reading.font = .preferredFont(forTextStyle: .title2)
-+            reading.adjustsFontForContentSizeCategory = true
-+            reading.textColor = .label
-+            reading.numberOfLines = 0
-+            let marker = UIView()
-+            marker.backgroundColor = color
-+            marker.heightAnchor.constraint(equalToConstant: 2).isActive = true
-+            let column = UIStackView(arrangedSubviews: [marker, heading, reading])
-+            column.axis = .vertical
-+            column.spacing = 3
-+            summary.addArrangedSubview(column)
-+        }
-+        wrapper.addSubview(summary)
-+        return wrapper
++        // Leave breathing room above the bottom controls and for fractional row rounding.
++        return floor(max(0, viewport - occupied - cardSectionChrome - 20))
++    }
++
++    override func viewDidLayoutSubviews() {
++        super.viewDidLayoutSubviews()
++        guard dashboardLayout != .original, !updatingCardHeights else { return }
++        cardSectionChrome = ceil(Section.allCases.reduce(CGFloat(0)) { result, section in
++            result + tableView.rectForHeader(inSection: section.rawValue).height
++                + tableView.rectForFooter(inSection: section.rawValue).height
++        })
++        let budget = cardHeightBudget
++        guard lastCardHeightBudget != budget else { return }
++        lastCardHeightBudget = budget
++        updatingCardHeights = true
++        tableView.beginUpdates()
++        tableView.endUpdates()
++        updatingCardHeights = false
 +    }
 +
      lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
  
      var onboardingManager: OnboardingManager!
-@@ -67,6 +171,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -50,6 +139,8 @@ final class StatusTableViewController: LoopChartsTableViewController {
+         super.viewDidLoad()
+         
+         setupToolbarItems()
++        originalSectionHeaderPadding = tableView.sectionHeaderTopPadding
++        if dashboardLayout != .original { tableView.sectionHeaderTopPadding = 0 }
+         
+         tableView.register(BolusProgressTableViewCell.nib(), forCellReuseIdentifier: BolusProgressTableViewCell.className)
+         tableView.register(AlertPermissionsDisabledWarningCell.self, forCellReuseIdentifier: AlertPermissionsDisabledWarningCell.className)
+@@ -67,6 +158,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
          let notificationCenter = NotificationCenter.default
  
          notificationObservers += [
@@ -123,7 +117,7 @@ index 580d67e..f1d04c2 100644
              notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
                  let rawContext = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
                  let context = LoopDataManager.LoopUpdateContext(rawValue: rawContext)
-@@ -165,6 +272,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -165,6 +259,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
          navigationController?.setToolbarHidden(false, animated: animated)
          
          updateToolbarItems()
@@ -131,7 +125,7 @@ index 580d67e..f1d04c2 100644
  
          alertPermissionsChecker.checkNow()
  
-@@ -1017,6 +1125,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1017,6 +1112,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              }
          case .hud:
              let cell = tableView.dequeueReusableCell(withIdentifier: HUDViewTableViewCell.className, for: indexPath) as! HUDViewTableViewCell
@@ -139,47 +133,40 @@ index 580d67e..f1d04c2 100644
              hudView = cell.hudView
  
              return cell
-@@ -1026,23 +1135,35 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1025,24 +1121,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
+ 
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
-                 cell.setChartGenerator(generator: { [weak self] (frame) in
+-                cell.setChartGenerator(generator: { [weak self] (frame) in
 -                    return self?.statusCharts.glucoseChart(withFrame: frame)?.view
-+                    return self?.readableChart(withFrame: frame,
-+                        explanation: "Dots: CGM readings. Lines: predictions. Shaded band: target, when shown.") {
-+                        self?.dashboardGlucoseChart(withFrame: $0)
-+                    }
++                cell.setChartGenerator(generator: { [weak self] frame in
++                    self?.cardChart(withFrame: frame) { self?.statusCharts.glucoseChart(withFrame: $0)?.view }
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Glucose", comment: "The title of the glucose and prediction graph"))
                  cell.doesNavigate = automaticDosingStatus.automaticDosingEnabled || !FeatureFlags.simpleBolusCalculatorEnabled
              case .iob:
-                 cell.setChartGenerator(generator: { [weak self] (frame) in
+-                cell.setChartGenerator(generator: { [weak self] (frame) in
 -                    return self?.statusCharts.iobChart(withFrame: frame)?.view
-+                    return self?.readableChart(withFrame: frame,
-+                        explanation: "Estimated insulin still active in your body.") {
-+                        self?.statusCharts.iobChart(withFrame: $0)?.view
-+                    }
++                cell.setChartGenerator(generator: { [weak self] frame in
++                    self?.cardChart(withFrame: frame) { self?.statusCharts.iobChart(withFrame: $0)?.view }
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Active Insulin", comment: "The title of the Insulin On-Board graph"))
              case .dose:
-                 cell.setChartGenerator(generator: { [weak self] (frame) in
+-                cell.setChartGenerator(generator: { [weak self] (frame) in
 -                    return self?.statusCharts.doseChart(withFrame: frame)?.view
-+                    return self?.readableChart(withFrame: frame,
-+                        explanation: "Insulin delivered over time: basal rates and boluses.") {
-+                        self?.statusCharts.doseChart(withFrame: $0)?.view
-+                    }
++                cell.setChartGenerator(generator: { [weak self] frame in
++                    self?.cardChart(withFrame: frame) { self?.statusCharts.doseChart(withFrame: $0)?.view }
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Insulin Delivery", comment: "The title of the insulin delivery graph"))
              case .cob:
-                 cell.setChartGenerator(generator: { [weak self] (frame) in
+-                cell.setChartGenerator(generator: { [weak self] (frame) in
 -                    return self?.statusCharts.cobChart(withFrame: frame)?.view
-+                    return self?.readableChart(withFrame: frame,
-+                        explanation: "Estimated carbs still being absorbed from your logged meals.") {
-+                        self?.statusCharts.cobChart(withFrame: $0)?.view
-+                    }
++                cell.setChartGenerator(generator: { [weak self] frame in
++                    self?.cardChart(withFrame: frame) { self?.statusCharts.cobChart(withFrame: $0)?.view }
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Active Carbohydrates", comment: "The title of the Carbs On-Board graph"))
              }
-@@ -1053,6 +1174,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1053,6 +1149,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              cell.setAlpha(alpha: alpha)
  
              cell.setSubtitleTextColor(color: UIColor.secondaryLabel)
@@ -187,7 +174,7 @@ index 580d67e..f1d04c2 100644
  
              return cell
          case .status:
-@@ -1179,7 +1301,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1179,7 +1276,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
                  if let eventualGlucose = eventualGlucoseDescription {
@@ -196,7 +183,7 @@ index 580d67e..f1d04c2 100644
                  } else {
                      cell.setSubtitleLabel(label: nil)
                  }
-@@ -1222,11 +1344,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1222,12 +1319,11 @@ final class StatusTableViewController: LoopChartsTableViewController {
              var availableSize = max(tableView.bounds.width, tableView.bounds.height)
              availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
  
@@ -205,29 +192,16 @@ index 580d67e..f1d04c2 100644
 -                return max(106, 0.37 * availableSize)
 -            case .iob, .dose, .cob:
 -                return max(106, 0.21 * availableSize)
-+            let isGlucose = ChartRow(rawValue: indexPath.row)! == .glucose
-+            switch dashboardLayout {
-+            case .original:
-+                return max(106, (isGlucose ? 0.37 : 0.21) * availableSize)
-+            case .glance:
-+                return max(isGlucose ? 360 : 190, (isGlucose ? 0.54 : 0.20) * availableSize)
-+            case .graphFirst:
-+                return max(isGlucose ? 400 : 180, (isGlucose ? 0.62 : 0.18) * availableSize)
-+            case .aurora:
-+                return max(isGlucose ? 310 : 190, (isGlucose ? 0.42 : 0.22) * availableSize)
-+            case .telemetry:
-+                return max(isGlucose ? 320 : 220, (isGlucose ? 0.36 : 0.25) * availableSize)
-+            case .zenith:
-+                return max(isGlucose ? 360 : 200, (isGlucose ? 0.65 : 0.18) * availableSize)
-+            case .compact:
-+                // Keep labels and graph gestures usable at larger text sizes.
-+                let minimum: CGFloat = traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 160 : 106
-+                return max(isGlucose ? 300 : max(minimum, 190), (isGlucose ? 0.42 : 0.14) * availableSize)
++            let row = ChartRow(rawValue: indexPath.row)!
++            if dashboardLayout == .original {
++                return max(106, (row == .glucose ? 0.37 : 0.21) * availableSize)
              }
++            return dashboardLayout.fittedChartHeights(availableHeight: cardHeightBudget)[indexPath.row]
          case .hud, .status, .alertWarning:
              return UITableView.automaticDimension
+         }
 diff --git a/Loop/Loop/Views/SettingsView.swift b/Loop/Loop/Views/SettingsView.swift
-index 9f9e3aa..5e1e96b 100644
+index 9f9e3aa..1fa2aac 100644
 --- a/Loop/Loop/Views/SettingsView.swift
 +++ b/Loop/Loop/Views/SettingsView.swift
 @@ -7,6 +7,7 @@
@@ -328,7 +302,7 @@ index 9f9e3aa..5e1e96b 100644
      private var softwareUpdateSection: some View {
          Section(footer: Text(viewModel.versionUpdateViewModel.footer(appName: appName))) {
              NavigationLink(destination: viewModel.versionUpdateViewModel.softwareUpdateView) {
-@@ -698,3 +768,50 @@ public struct SettingsView_Previews: PreviewProvider {
+@@ -698,3 +768,67 @@ public struct SettingsView_Previews: PreviewProvider {
          }
      }
  }
@@ -341,6 +315,23 @@ index 9f9e3aa..5e1e96b 100644
 +
 +    static var selected: DashboardLayout {
 +        DashboardLayout(rawValue: UserDefaults.standard.string(forKey: preferenceKey) ?? "") ?? .original
++    }
++
++    // Allocate one finite viewport budget. Do not independently clamp each row,
++    // which made the previous cards taller than the screen in total.
++    func fittedChartHeights(availableHeight: CGFloat) -> [CGFloat] {
++        let weights: [CGFloat]
++        switch self {
++        case .original, .glance: weights = [0.40, 0.20, 0.20, 0.20]
++        case .graphFirst: weights = [0.46, 0.18, 0.18, 0.18]
++        case .compact: weights = [0.34, 0.22, 0.22, 0.22]
++        case .aurora: weights = [0.37, 0.21, 0.21, 0.21]
++        case .telemetry: weights = [0.32, 0.24, 0.26, 0.18]
++        case .zenith: weights = [0.40, 0.20, 0.20, 0.20]
++        }
++        let budget = max(0, availableHeight)
++        let first = weights.prefix(3).map { floor(budget * $0) }
++        return first + [max(0, budget - first.reduce(0, +))]
 +    }
 +
 +    var presentation: DashboardPresentation {
@@ -370,20 +361,20 @@ index 9f9e3aa..5e1e96b 100644
 +    var detail: String {
 +        switch self {
 +        case .original: return "The standard Loop dashboard."
-+        case .glance: return "Recommended. Large glucose, roomy graph cards, and plain-language explanations."
-+        case .graphFirst: return "The most room for glucose history and prediction; supporting cards below."
-+        case .compact: return "Simple glucose header and shorter supporting cards."
-+        case .aurora: return "Glucose and device status side by side; compact, explained graph cards."
-+        case .telemetry: return "Device status first and more space for insulin activity and delivery."
-+        case .zenith: return "The largest glucose number with spacious, explained graph cards."
++        case .glance: return "Balanced cards."
++        case .graphFirst: return "Larger glucose graph."
++        case .compact: return "Minimal cards."
++        case .aurora: return "Compact cards."
++        case .telemetry: return "Larger insulin graphs."
++        case .zenith: return "Larger glucose number."
 +        }
 +    }
 +}
 diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
-index b29b1d5..cf83898 100644
+index b29b1d5..e492939 100644
 --- a/Loop/LoopTests/LoopTests.swift
 +++ b/Loop/LoopTests/LoopTests.swift
-@@ -7,10 +7,234 @@
+@@ -7,10 +7,244 @@
  //
  
  import XCTest
@@ -415,8 +406,24 @@ index b29b1d5..cf83898 100644
 +        }
 +    }
 +
++    func testAllSixLayoutsFitOneViewportBudget() {
++        for layout in DashboardLayout.allCases where layout != .original {
++            for viewport in [CGFloat(812), 844, 896, 932] {
++                // Reserve safe areas, toolbar, compact HUD, a status row and padding.
++                let occupied: CGFloat = 59 + 83 + 90 + 84 + 20
++                let budget = viewport - occupied
++                let rows = layout.fittedChartHeights(availableHeight: budget)
++                XCTAssertEqual(rows.count, 4)
++                XCTAssertEqual(rows.reduce(0, +), budget, accuracy: 0.01)
++                XCTAssertLessThanOrEqual(rows.reduce(0, +) + occupied, viewport)
++                XCTAssertTrue(rows.allSatisfy { $0 >= 80 })
++                if viewport == 932 { XCTAssertTrue(rows.allSatisfy { $0 >= 100 }) }
++            }
++        }
++    }
++
 +    @MainActor
-+    func testExplainedCardsRetainChartAndOriginalGeometry() {
++    func testCardsContainOnlyTheNativeChartAndOriginalGeometry() {
 +        let defaults = UserDefaults.standard
 +        let previous = defaults.object(forKey: DashboardLayout.preferenceKey)
 +        defer {
@@ -427,30 +434,23 @@ index b29b1d5..cf83898 100644
 +            defaults.set(layout.rawValue, forKey: DashboardLayout.preferenceKey)
 +            let controller = StatusTableViewController(style: .plain)
 +            for width in [CGFloat(320), 390, 430] {
-+                for height in [CGFloat(140), 240, 400] {
-+                    let frame = CGRect(x: 0, y: 0, width: width, height: height)
-+                    let chart = UIView()
-+                    var requestedFrame = CGRect.zero
-+                    let help = "Estimated carbs still being absorbed from your logged meals."
-+                    let result = controller.readableChart(withFrame: frame, explanation: help) { rect in
-+                        requestedFrame = rect
-+                        chart.frame = rect
-+                        return chart
-+                    }
-+                    XCTAssertNotNil(result)
-+                    if layout == .original {
-+                        XCTAssertTrue(result === chart)
-+                        XCTAssertEqual(requestedFrame, frame)
-+                    } else if result !== chart {
-+                        XCTAssertTrue(chart.superview === result)
-+                        XCTAssertGreaterThanOrEqual(requestedFrame.height, 100)
-+                        let labels = result!.subviews.compactMap { $0 as? UILabel }
-+                        XCTAssertEqual(labels.count, 1)
-+                        XCTAssertEqual(labels.first?.text, help)
-+                        XCTAssertLessThanOrEqual(labels[0].frame.maxY, height)
-+                        XCTAssertLessThanOrEqual(chart.frame.maxX, width)
-+                        XCTAssertLessThanOrEqual(chart.frame.maxY, labels[0].frame.minY)
-+                    }
++                let frame = CGRect(x: 0, y: 0, width: width, height: 120)
++                let chart = UIView()
++                var requestedFrame = CGRect.zero
++                let result = controller.cardChart(withFrame: frame) { rect in
++                    requestedFrame = rect
++                    chart.frame = rect
++                    return chart
++                }
++                XCTAssertNotNil(result)
++                if layout == .original {
++                    XCTAssertTrue(result === chart)
++                    XCTAssertEqual(requestedFrame, frame)
++                } else {
++                    XCTAssertTrue(chart.superview === result)
++                    XCTAssertEqual(result?.subviews.count, 1)
++                    XCTAssertLessThanOrEqual(chart.frame.maxX, width)
++                    XCTAssertLessThanOrEqual(chart.frame.maxY, frame.height)
 +                }
 +            }
 +        }
@@ -527,6 +527,7 @@ index b29b1d5..cf83898 100644
 +                        hud.layoutIfNeeded()
 +                        XCTAssertEqual(size.width, width, accuracy: 1)
 +                        XCTAssertGreaterThan(size.height, 0)
++                        if !accessibility { XCTAssertLessThanOrEqual(size.height, 90) }
 +                        XCTAssertFalse(hud.hasAmbiguousLayout)
 +                        let views: [UIView] = [hud.cgmStatusHUD!, hud.loopCompletionHUD!, hud.pumpStatusHUD!]
 +                        for view in views {
@@ -636,7 +637,7 @@ index 904f9d4..4d9d37e 100644
          didSet {
              guard let lifecycleProgress = lifecycleProgress else {
 diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
-index 3bd851e..d5ed486 100644
+index 3bd851e..e1790af 100644
 --- a/Loop/LoopUI/Views/StatusBarHUDView.swift
 +++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
 @@ -9,6 +9,51 @@
@@ -691,7 +692,7 @@ index 3bd851e..d5ed486 100644
  public class StatusBarHUDView: UIView, NibLoadable {
      
      @IBOutlet public weak var cgmStatusHUD: CGMStatusHUDView!
-@@ -18,13 +63,152 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -18,13 +63,144 @@ public class StatusBarHUDView: UIView, NibLoadable {
      @IBOutlet public weak var pumpStatusHUD: PumpStatusHUDView!
          
      public var containerView: UIStackView!
@@ -703,24 +704,16 @@ index 3bd851e..d5ed486 100644
 +    public func setDashboardPresentation(_ presentation: DashboardPresentation) {
 +        if originalGlucoseFont == nil { originalGlucoseFont = cgmStatusHUD.glucoseValueHUD.glucoseLabel.font }
 +        self.presentation = presentation
-+        identityLabel.text = presentation == .original ? nil : "GLUCOSE  /  LOOP"
++        identityLabel.text = nil
 +        identityLabel.textColor = .secondaryLabel
-+        identityHeight.constant = presentation == .original ? 0 : 32
-+        var layout: Int
-+        switch presentation {
-+        case .original, .missionControl: layout = 0
-+        case .orbit, .eclipse, .zenith: layout = 1
-+        case .aurora: layout = 2
-+        case .telemetry: layout = 3
-+        }
-+        if presentation != .original && traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
-+            layout = 1
-+        }
++        identityHeight.constant = 0
++        // A single compact row leaves room for every graph on the dashboard.
++        let layout = presentation != .original && traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 1 : 0
 +        setHUDLayout(layout)
 +        if presentation != .original {
-+            let size: CGFloat = presentation == .zenith ? 64 : (layout == 1 ? 56 : 32)
++            let size: CGFloat = presentation == .zenith ? (bounds.width < 350 ? 32 : 36) : 30
 +            cgmStatusHUD.glucoseValueHUD.glucoseLabel.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(
-+                for: .systemFont(ofSize: size, weight: .bold), maximumPointSize: 76, compatibleWith: traitCollection)
++                for: .systemFont(ofSize: size, weight: .bold), maximumPointSize: 40, compatibleWith: traitCollection)
 +        }
 +        if presentation == .original { cgmStatusHUD.glucoseValueHUD.glucoseLabel.font = originalGlucoseFont }
 +        setNeedsLayout()
@@ -845,7 +838,7 @@ index 3bd851e..d5ed486 100644
              }
          }
      }
-@@ -48,20 +232,39 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -48,20 +224,39 @@ public class StatusBarHUDView: UIView, NibLoadable {
      
      func setup() {
          containerView = (StatusBarHUDView.nib().instantiate(withOwner: self, options: nil)[0] as! UIStackView)
@@ -887,7 +880,7 @@ index 3bd851e..d5ed486 100644
      public func removePumpManagerProvidedView() {
          pumpStatusHUD.removePumpManagerProvidedHUD()
      }
-@@ -70,3 +273,29 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -70,3 +265,29 @@ public class StatusBarHUDView: UIView, NibLoadable {
          pumpStatusHUD.addPumpManagerProvidedHUDView(pumpManagerProvidedHUD)
      }
  }
