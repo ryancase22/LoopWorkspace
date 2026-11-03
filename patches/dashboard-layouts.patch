@@ -244,10 +244,10 @@ index 9f9e3aa..8c1f526 100644
 +    }
 +}
 diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
-index b29b1d5..5028ce9 100644
+index b29b1d5..0ccdb89 100644
 --- a/Loop/LoopTests/LoopTests.swift
 +++ b/Loop/LoopTests/LoopTests.swift
-@@ -7,10 +7,176 @@
+@@ -7,10 +7,179 @@
  //
  
  import XCTest
@@ -339,7 +339,8 @@ index b29b1d5..5028ce9 100644
 +                        XCTAssertEqual(size.width, width, accuracy: 1)
 +                        XCTAssertGreaterThan(size.height, 0)
 +                        XCTAssertFalse(hud.hasAmbiguousLayout)
-+                        for view in [hud.cgmStatusHUD!, hud.loopCompletionHUD!, hud.pumpStatusHUD!] {
++                        let views: [UIView] = [hud.cgmStatusHUD!, hud.loopCompletionHUD!, hud.pumpStatusHUD!]
++                        for view in views {
 +                            let rect = view.convert(view.bounds, to: hud)
 +                            XCTAssertGreaterThanOrEqual(rect.minX, -1)
 +                            XCTAssertLessThanOrEqual(rect.maxX, width + 1)
@@ -367,6 +368,7 @@ index b29b1d5..5028ce9 100644
 +        let loop = hud.loopCompletionHUD!
 +        let originalFont = cgm.glucoseValueHUD.glucoseLabel.font
 +        let originalSpacing = hud.containerView.spacing
++        let originalConstraints = hud.containerView.constraints
 +        let tap = UITapGestureRecognizer()
 +        cgm.addGestureRecognizer(tap)
 +
@@ -393,6 +395,7 @@ index b29b1d5..5028ce9 100644
 +            XCTAssertTrue(hud.containerView.arrangedSubviews[2] === pump)
 +            XCTAssertEqual(cgm.glucoseValueHUD.glucoseLabel.font, originalFont)
 +            XCTAssertEqual(hud.containerView.spacing, originalSpacing)
++            XCTAssertTrue(originalConstraints.allSatisfy { $0.isActive })
 +        }
 +    }
 +
@@ -426,7 +429,7 @@ index b29b1d5..5028ce9 100644
  extension XCTestCase {
      
 diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
-index 3bd851e..22a9f23 100644
+index 3bd851e..78ec2dc 100644
 --- a/Loop/LoopUI/Views/StatusBarHUDView.swift
 +++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
 @@ -9,6 +9,44 @@
@@ -474,7 +477,7 @@ index 3bd851e..22a9f23 100644
  public class StatusBarHUDView: UIView, NibLoadable {
      
      @IBOutlet public weak var cgmStatusHUD: CGMStatusHUDView!
-@@ -18,13 +56,90 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -18,13 +56,100 @@ public class StatusBarHUDView: UIView, NibLoadable {
      @IBOutlet public weak var pumpStatusHUD: PumpStatusHUDView!
          
      public var containerView: UIStackView!
@@ -499,6 +502,7 @@ index 3bd851e..22a9f23 100644
 +    private var glanceStatusRow: UIStackView?
 +    private var glanceConstraints: [NSLayoutConstraint] = []
 +    private var originalGlucoseFont: UIFont?
++    private var originalHUDConstraints: [NSLayoutConstraint]?
 +    private var isGlanceLayout = false
 +
 +    /// Rearranges the existing HUD views, retaining their warning, staleness,
@@ -513,6 +517,14 @@ index 3bd851e..22a9f23 100644
 +        let cgm = cgmStatusHUD!
 +        let loop = loopCompletionHUD!
 +        let pump = pumpStatusHUD!
++        if originalHUDConstraints == nil {
++            // Removing arranged views also removes constraints between them.
++            // Save the nib's equal-width constraint so Original restores exactly.
++            originalHUDConstraints = containerView.constraints.filter {
++                ($0.firstItem as? UIView) === cgm || ($0.firstItem as? UIView) === pump
++            }
++        }
++        NSLayoutConstraint.deactivate(originalHUDConstraints ?? [])
 +        NSLayoutConstraint.deactivate(glanceConstraints)
 +        glanceConstraints = []
 +        for view in containerView.arrangedSubviews {
@@ -550,6 +562,7 @@ index 3bd851e..22a9f23 100644
 +            containerView.addArrangedSubview(loop)
 +            containerView.addArrangedSubview(pump)
 +            glucoseLabel.font = originalGlucoseFont
++            NSLayoutConstraint.activate(originalHUDConstraints ?? [])
 +        }
 +        setNeedsLayout()
 +        invalidateIntrinsicContentSize()
