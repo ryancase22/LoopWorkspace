@@ -159,7 +159,7 @@ index 580d67e..a5867e0 100644
          case .hud, .status, .alertWarning:
              return UITableView.automaticDimension
 diff --git a/Loop/Loop/Views/SettingsView.swift b/Loop/Loop/Views/SettingsView.swift
-index 9f9e3aa..8353b66 100644
+index 9f9e3aa..1c86423 100644
 --- a/Loop/Loop/Views/SettingsView.swift
 +++ b/Loop/Loop/Views/SettingsView.swift
 @@ -7,6 +7,7 @@
@@ -302,11 +302,11 @@ index 9f9e3aa..8353b66 100644
 +    var detail: String {
 +        switch self {
 +        case .original: return "The standard Loop dashboard."
-+        case .glance: return "Prominent glucose, blue accents, and rounded chart cards."
-+        case .graphFirst: return "A wide-view glucose chart with a compact status header."
++        case .glance: return "Planetary horizon, large glucose, and an open chart with a summary strip."
++        case .graphFirst: return "Compact header and the largest view of glucose history and prediction."
 +        case .compact: return "An open glucose header with compact charts."
 +        case .aurora: return "Split glucose and device status, with balanced charts."
-+        case .telemetry: return "Device status first, then glucose and delivery charts."
++        case .telemetry: return "Device status first, with emphasis on glucose and insulin delivery."
 +        case .zenith: return "A bold glucose header and the largest glucose chart."
 +        }
 +    }
