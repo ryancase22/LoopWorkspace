@@ -1,0 +1,355 @@
+diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
+index 580d67e..9d8d024 100644
+--- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
++++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
+@@ -29,6 +29,19 @@ final class StatusTableViewController: LoopChartsTableViewController {
+ 
+     private let log = OSLog(category: "StatusTableViewController")
+ 
++    private var dashboardLayout = DashboardLayout.selected
++
++    private func applyDashboardLayoutIfNeeded() {
++        let selected = DashboardLayout.selected
++        guard selected != dashboardLayout else { return }
++        dashboardLayout = selected
++        hudView?.setGlanceLayout(selected == .glance)
++        tableView.beginUpdates()
++        tableView.endUpdates()
++        redrawCharts()
++    }
++
++
+     lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
+ 
+     var onboardingManager: OnboardingManager!
+@@ -67,6 +80,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
+         let notificationCenter = NotificationCenter.default
+ 
+         notificationObservers += [
++            notificationCenter.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
++                self?.applyDashboardLayoutIfNeeded()
++            },
+             notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
+                 let rawContext = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
+                 let context = LoopDataManager.LoopUpdateContext(rawValue: rawContext)
+@@ -165,6 +181,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+         navigationController?.setToolbarHidden(false, animated: animated)
+         
+         updateToolbarItems()
++        applyDashboardLayoutIfNeeded()
+ 
+         alertPermissionsChecker.checkNow()
+ 
+@@ -1017,6 +1034,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+             }
+         case .hud:
+             let cell = tableView.dequeueReusableCell(withIdentifier: HUDViewTableViewCell.className, for: indexPath) as! HUDViewTableViewCell
++            cell.hudView.setGlanceLayout(dashboardLayout == .glance)
+             hudView = cell.hudView
+ 
+             return cell
+@@ -1222,11 +1240,18 @@ final class StatusTableViewController: LoopChartsTableViewController {
+             var availableSize = max(tableView.bounds.width, tableView.bounds.height)
+             availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
+ 
+-            switch ChartRow(rawValue: indexPath.row)! {
+-            case .glucose:
+-                return max(106, 0.37 * availableSize)
+-            case .iob, .dose, .cob:
+-                return max(106, 0.21 * availableSize)
++            let isGlucose = ChartRow(rawValue: indexPath.row)! == .glucose
++            switch dashboardLayout {
++            case .original:
++                return max(106, (isGlucose ? 0.37 : 0.21) * availableSize)
++            case .glance:
++                return max(106, (isGlucose ? 0.32 : 0.18) * availableSize)
++            case .graphFirst:
++                return max(isGlucose ? 220 : 106, (isGlucose ? 0.55 : 0.18) * availableSize)
++            case .compact:
++                // Keep labels and graph gestures usable at larger text sizes.
++                let minimum: CGFloat = traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 160 : 106
++                return max(minimum, (isGlucose ? 0.27 : 0.14) * availableSize)
+             }
+         case .hud, .status, .alertWarning:
+             return UITableView.automaticDimension
+diff --git a/Loop/Loop/Views/SettingsView.swift b/Loop/Loop/Views/SettingsView.swift
+index 9f9e3aa..ba82e20 100644
+--- a/Loop/Loop/Views/SettingsView.swift
++++ b/Loop/Loop/Views/SettingsView.swift
+@@ -21,6 +21,8 @@ public struct SettingsView: View {
+     @Environment(\.glucoseTintColor) private var glucoseTintColor
+     @Environment(\.insulinTintColor) private var insulinTintColor
+ 
++    @AppStorage(DashboardLayout.preferenceKey) private var dashboardLayout = DashboardLayout.original.rawValue
++
+     @ObservedObject var viewModel: SettingsViewModel
+     @ObservedObject var versionUpdateViewModel: VersionUpdateViewModel
+ 
+@@ -89,6 +91,7 @@ public struct SettingsView: View {
+                     }
+                 }
+                 Group {
++                    appearanceSection
+                     if viewModel.servicesViewModel.showServices {
+                         servicesSection
+                     }
+@@ -195,6 +198,47 @@ extension SettingsView {
+         }
+     }
+     
++    private var appearanceSection: some View {
++        Section(header: Text("Appearance")) {
++            NavigationLink(destination: dashboardLayoutSelection) {
++                HStack {
++                    Text("Dashboard layout")
++                    Spacer()
++                    Text((DashboardLayout(rawValue: dashboardLayout) ?? .original).title)
++                        .foregroundColor(.secondary)
++                }
++            }
++        }
++    }
++
++    private var dashboardLayoutSelection: some View {
++        List {
++            Section(footer: Text("Changes the dashboard presentation only. Choose Original Loop to restore the standard display.")) {
++                ForEach(DashboardLayout.allCases, id: \.rawValue) { layout in
++                    Button(action: { dashboardLayout = layout.rawValue }) {
++                        HStack {
++                            VStack(alignment: .leading, spacing: 4) {
++                                Text(layout.title).foregroundColor(.primary)
++                                Text(layout.detail)
++                                    .font(.footnote)
++                                    .foregroundColor(.secondary)
++                            }
++                            Spacer()
++                            if (DashboardLayout(rawValue: dashboardLayout) ?? .original) == layout {
++                                Image(systemName: "checkmark").accessibilityLabel("Selected")
++                            }
++                        }
++                        .padding(.vertical, 4)
++                        .contentShape(Rectangle())
++                    }
++                    .accessibilityAddTraits((DashboardLayout(rawValue: dashboardLayout) ?? .original) == layout ? .isSelected : [])
++                }
++            }
++        }
++        .insetGroupedListStyle()
++        .navigationTitle("Dashboard layout")
++    }
++
+     private var softwareUpdateSection: some View {
+         Section(footer: Text(viewModel.versionUpdateViewModel.footer(appName: appName))) {
+             NavigationLink(destination: viewModel.versionUpdateViewModel.softwareUpdateView) {
+@@ -698,3 +742,32 @@ public struct SettingsView_Previews: PreviewProvider {
+         }
+     }
+ }
++
++// Local presentation preference only; deliberately separate from therapy settings.
++enum DashboardLayout: String, CaseIterable {
++    case original, glance, graphFirst, compact
++
++    static let preferenceKey = "com.ryancase.loop.dashboardLayout.v1"
++
++    static var selected: DashboardLayout {
++        DashboardLayout(rawValue: UserDefaults.standard.string(forKey: preferenceKey) ?? "") ?? .original
++    }
++
++    var title: String {
++        switch self {
++        case .original: return "Original Loop"
++        case .glance: return "Glance"
++        case .graphFirst: return "Graph first"
++        case .compact: return "Compact"
++        }
++    }
++
++    var detail: String {
++        switch self {
++        case .original: return "The standard Loop dashboard."
++        case .glance: return "Larger glucose text above pump and Loop status."
++        case .graphFirst: return "More space for glucose history and prediction."
++        case .compact: return "Shorter charts with every chart still available."
++        }
++    }
++}
+diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
+index b29b1d5..7582ec1 100644
+--- a/Loop/LoopTests/LoopTests.swift
++++ b/Loop/LoopTests/LoopTests.swift
+@@ -7,10 +7,94 @@
+ //
+ 
+ import XCTest
++import UIKit
++import HealthKit
++import LoopUI
+ 
+ @testable import Loop
+ 
+-class LoopTests: XCTestCase {}
++class LoopTests: XCTestCase {
++    func testDashboardPreferenceDefaultsAndRoundTrip() {
++        let defaults = UserDefaults.standard
++        let key = DashboardLayout.preferenceKey
++        let previous = defaults.object(forKey: key)
++        defer {
++            if let previous = previous { defaults.set(previous, forKey: key) }
++            else { defaults.removeObject(forKey: key) }
++        }
++        defaults.removeObject(forKey: key)
++        XCTAssertEqual(DashboardLayout.selected, .original)
++        defaults.set("unknown-future-layout", forKey: key)
++        XCTAssertEqual(DashboardLayout.selected, .original)
++        for layout in DashboardLayout.allCases {
++            defaults.set(layout.rawValue, forKey: key)
++            XCTAssertEqual(DashboardLayout.selected, layout)
++        }
++    }
++
++    @MainActor
++    func testGlanceRetainsHUDsAndRestoresOriginalLayout() {
++        let hud = StatusBarHUDView(frame: CGRect(x: 0, y: 0, width: 390, height: 74))
++        let cgm = hud.cgmStatusHUD!
++        let pump = hud.pumpStatusHUD!
++        let loop = hud.loopCompletionHUD!
++        let originalFont = cgm.glucoseValueHUD.glucoseLabel.font
++        let originalSpacing = hud.containerView.spacing
++        let tap = UITapGestureRecognizer()
++        cgm.addGestureRecognizer(tap)
++
++        // An old reading must remain stale through every presentation change.
++        cgm.setGlucoseQuantity(112, at: Date().addingTimeInterval(-3600),
++                              unit: HKUnit(from: "mg/dL"), staleGlucoseAge: 600,
++                              glucoseDisplay: nil, wasUserEntered: false, isDisplayOnly: false)
++        let staleText = cgm.glucoseValueHUD.glucoseLabel.text
++        XCTAssertNotEqual(staleText, "112")
++        for _ in 0..<3 {
++            hud.setGlanceLayout(true)
++            hud.setGlanceLayout(true)
++            XCTAssertTrue(hud.cgmStatusHUD === cgm)
++            XCTAssertTrue(hud.pumpStatusHUD === pump)
++            XCTAssertTrue(hud.loopCompletionHUD === loop)
++            XCTAssertEqual(hud.containerView.axis, .vertical)
++            XCTAssertTrue(cgm.gestureRecognizers?.contains(tap) == true)
++            XCTAssertEqual(cgm.glucoseValueHUD.glucoseLabel.text, staleText)
++            hud.setGlanceLayout(false)
++            XCTAssertEqual(hud.containerView.axis, .horizontal)
++            XCTAssertEqual(hud.containerView.arrangedSubviews.count, 3)
++            XCTAssertTrue(hud.containerView.arrangedSubviews[0] === cgm)
++            XCTAssertTrue(hud.containerView.arrangedSubviews[1] === loop)
++            XCTAssertTrue(hud.containerView.arrangedSubviews[2] === pump)
++            XCTAssertEqual(cgm.glucoseValueHUD.glucoseLabel.font, originalFont)
++            XCTAssertEqual(hud.containerView.spacing, originalSpacing)
++        }
++    }
++
++    @MainActor
++    func testGlanceLayoutAtPhoneWidths() {
++        for width in [CGFloat(320), 390, 430] {
++            let hud = StatusBarHUDView(frame: CGRect(x: 0, y: 0, width: width, height: 74))
++            hud.cgmStatusHUD.glucoseValueHUD.glucoseLabel.text = "112"
++            hud.cgmStatusHUD.glucoseValueHUD.unitLabel.text = "mg/dL"
++            hud.setGlanceLayout(true)
++            let size = hud.systemLayoutSizeFitting(CGSize(width: width, height: 0),
++                withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
++            hud.frame.size = size
++            hud.layoutIfNeeded()
++            XCTAssertGreaterThan(size.height, 150)
++            XCTAssertEqual(size.width, width, accuracy: 1)
++            let label = hud.cgmStatusHUD.glucoseValueHUD.glucoseLabel!
++            let labelRect = label.convert(label.bounds, to: hud)
++            XCTAssertGreaterThanOrEqual(labelRect.minX, 0)
++            XCTAssertLessThanOrEqual(labelRect.maxX, width)
++            let renderer = UIGraphicsImageRenderer(size: size)
++            let image = renderer.image { hud.layer.render(in: $0.cgContext) }
++            let attachment = XCTAttachment(image: image)
++            attachment.name = "Glance-HUD-\(Int(width))"
++            attachment.lifetime = .keepAlways
++            add(attachment)
++        }
++    }
++}
+ 
+ extension XCTestCase {
+     
+diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
+index 3bd851e..cf5fa85 100644
+--- a/Loop/LoopUI/Views/StatusBarHUDView.swift
++++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
+@@ -18,13 +18,73 @@ public class StatusBarHUDView: UIView, NibLoadable {
+     @IBOutlet public weak var pumpStatusHUD: PumpStatusHUDView!
+         
+     public var containerView: UIStackView!
++
++    private var glanceStatusRow: UIStackView?
++    private var glanceConstraints: [NSLayoutConstraint] = []
++    private var originalGlucoseFont: UIFont?
++    private var isGlanceLayout = false
++
++    /// Rearranges the existing HUD views, retaining their warning, staleness,
++    /// accessibility and tap behavior. Does not create another glucose data path.
++    public func setGlanceLayout(_ enabled: Bool) {
++        guard enabled != isGlanceLayout else { return }
++        isGlanceLayout = enabled
++        let glucoseLabel = cgmStatusHUD.glucoseValueHUD.glucoseLabel!
++        if originalGlucoseFont == nil { originalGlucoseFont = glucoseLabel.font }
++
++        // Retain the views while moving them because the outlets are weak.
++        let cgm = cgmStatusHUD!
++        let loop = loopCompletionHUD!
++        let pump = pumpStatusHUD!
++        NSLayoutConstraint.deactivate(glanceConstraints)
++        glanceConstraints = []
++        for view in containerView.arrangedSubviews {
++            containerView.removeArrangedSubview(view)
++            view.removeFromSuperview()
++        }
++        if let row = glanceStatusRow {
++            for view in row.arrangedSubviews {
++                row.removeArrangedSubview(view)
++                view.removeFromSuperview()
++            }
++        }
++        glanceStatusRow = nil
++
++        if enabled {
++            containerView.axis = .vertical
++            containerView.spacing = 4
++            let row = UIStackView(arrangedSubviews: [loop, pump])
++            row.axis = .horizontal
++            row.spacing = 16
++            containerView.addArrangedSubview(cgm)
++            containerView.addArrangedSubview(row)
++            glanceStatusRow = row
++            glucoseLabel.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(
++                for: .systemFont(ofSize: 54, weight: .heavy), maximumPointSize: 68)
++            glanceConstraints = [
++                cgm.glucoseValueHUD.heightAnchor.constraint(greaterThanOrEqualToConstant: 92),
++                row.heightAnchor.constraint(greaterThanOrEqualToConstant: 74)
++            ]
++            NSLayoutConstraint.activate(glanceConstraints)
++        } else {
++            containerView.axis = .horizontal
++            containerView.spacing = adjustViewsForNarrowDisplay ? 8 : 16
++            containerView.addArrangedSubview(cgm)
++            containerView.addArrangedSubview(loop)
++            containerView.addArrangedSubview(pump)
++            glucoseLabel.font = originalGlucoseFont
++        }
++        setNeedsLayout()
++        invalidateIntrinsicContentSize()
++    }
++
+     
+     public var adjustViewsForNarrowDisplay: Bool = false {
+         didSet {
+             if adjustViewsForNarrowDisplay != oldValue {
+                 cgmStatusHUD.adjustViewsForNarrowDisplay = adjustViewsForNarrowDisplay
+                 pumpStatusHUD.adjustViewsForNarrowDisplay = adjustViewsForNarrowDisplay
+-                containerView.spacing = adjustViewsForNarrowDisplay ? 8.0 : 16.0
++                containerView.spacing = isGlanceLayout ? 4 : (adjustViewsForNarrowDisplay ? 8.0 : 16.0)
+             }
+         }
+     }
