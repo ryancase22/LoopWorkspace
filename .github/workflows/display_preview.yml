@@ -24,7 +24,12 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p display-results
-          xcodebuild -workspace LoopWorkspace.xcworkspace -scheme LoopWorkspace -destination 'platform=iOS Simulator,name=iPhone 17' -collect-test-diagnostics never -resultBundlePath display-results/Display.xcresult -only-testing:LoopTests/LoopTests test CODE_SIGNING_ALLOWED=NO SUPPORTS_MACCATALYST=NO 2>&1 | tee display-results/build.log | xcbeautify
+          xcodebuild -workspace LoopWorkspace.xcworkspace -scheme LoopWorkspace -destination 'platform=iOS Simulator,name=iPhone 17' -collect-test-diagnostics never -resultBundlePath display-results/Display.xcresult -only-testing:LoopTests/LoopTests test SUPPORTS_MACCATALYST=NO 2>&1 | tee display-results/build.log | xcbeautify
+      - name: Export screenshots and raw failure details
+        if: always()
+        run: |
+          tail -100 display-results/build.log
+          xcrun xcresulttool export attachments --path display-results/Display.xcresult --output-path display-results/screenshots || true
       - name: Save test results and screenshots
         if: always()
         uses: actions/upload-artifact@v6
