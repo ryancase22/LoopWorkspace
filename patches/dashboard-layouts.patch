@@ -1,8 +1,8 @@
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..a08be48 100644
+index 580d67e..d8e0fa4 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
-@@ -29,6 +29,83 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -29,6 +29,112 @@ final class StatusTableViewController: LoopChartsTableViewController {
  
      private let log = OSLog(category: "StatusTableViewController")
  
@@ -30,12 +30,41 @@ index 580d67e..a08be48 100644
 +        }
 +        let style = dashboardLayout.presentation
 +        var card = UIBackgroundConfiguration.clear()
-+        card.backgroundColor = style.surface
-+        card.cornerRadius = dashboardLayout == .graphFirst ? 12 : 0
-+        card.backgroundInsets = NSDirectionalEdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
++        card.backgroundColor = .secondarySystemGroupedBackground
++        card.cornerRadius = 20
++        card.backgroundInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
 +        card.strokeColor = style.accent.withAlphaComponent(dashboardLayout == .compact ? 0.2 : 0.35)
-+        card.strokeWidth = 0
++        card.strokeColor = .separator
++        card.strokeWidth = 0.5
 +        cell.backgroundConfiguration = card
++    }
++
++    /// Keep measured/modelled values native; explain each chart in its own card.
++    private func readableChart(withFrame frame: CGRect, explanation: String,
++                               render: (CGRect) -> UIView?) -> UIView? {
++        guard dashboardLayout != .original else { return render(frame) }
++        let font = UIFont.preferredFont(forTextStyle: .footnote)
++        let inset: CGFloat = 12
++        let width = max(0, frame.width - inset * 2)
++        let textHeight = ceil((explanation as NSString).boundingRect(
++            with: CGSize(width: width, height: .greatestFiniteMagnitude),
++            options: [.usesLineFragmentOrigin, .usesFontLeading],
++            attributes: [.font: font], context: nil).height)
++        let footerHeight = textHeight + 20
++        guard frame.height - footerHeight >= 100 else { return render(frame) }
++        let chartFrame = CGRect(x: 0, y: 0, width: width, height: frame.height - footerHeight)
++        guard let chart = render(chartFrame) else { return nil }
++        let wrapper = UIView(frame: frame)
++        chart.frame.origin = CGPoint(x: inset, y: 0)
++        wrapper.addSubview(chart)
++        let help = UILabel(frame: CGRect(x: inset, y: chartFrame.height + 4, width: width, height: textHeight))
++        help.text = explanation
++        help.font = font
++        help.adjustsFontForContentSizeCategory = true
++        help.numberOfLines = 0
++        help.textColor = .secondaryLabel
++        wrapper.addSubview(help)
++        return wrapper
 +    }
 +
 +    // Wrap the existing chart, preserving its time scale, prediction and gestures.
@@ -57,8 +86,8 @@ index 580d67e..a08be48 100644
 +        summary.spacing = 20
 +        summary.frame = CGRect(x: 16, y: chartFrame.maxY + 6, width: max(0, frame.width - 32), height: summaryHeight - 12)
 +        for (title, value, color) in [
-+            ("Active insulin", currentIOBDescription, UIColor.insulinTintColor),
-+            ("Active carbs", currentCOBDescription, UIColor.carbTintColor)
++            ("Insulin active", currentIOBDescription, UIColor.insulinTintColor),
++            ("Carbs absorbing", currentCOBDescription, UIColor.carbTintColor)
 +        ] {
 +            let heading = UILabel()
 +            heading.text = title
@@ -86,7 +115,7 @@ index 580d67e..a08be48 100644
      lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
  
      var onboardingManager: OnboardingManager!
-@@ -67,6 +144,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -67,6 +173,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
          let notificationCenter = NotificationCenter.default
  
          notificationObservers += [
@@ -96,7 +125,7 @@ index 580d67e..a08be48 100644
              notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
                  let rawContext = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
                  let context = LoopDataManager.LoopUpdateContext(rawValue: rawContext)
-@@ -165,6 +245,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -165,6 +274,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
          navigationController?.setToolbarHidden(false, animated: animated)
          
          updateToolbarItems()
@@ -104,7 +133,7 @@ index 580d67e..a08be48 100644
  
          alertPermissionsChecker.checkNow()
  
-@@ -1017,6 +1098,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1017,6 +1127,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              }
          case .hud:
              let cell = tableView.dequeueReusableCell(withIdentifier: HUDViewTableViewCell.className, for: indexPath) as! HUDViewTableViewCell
@@ -112,16 +141,47 @@ index 580d67e..a08be48 100644
              hudView = cell.hudView
  
              return cell
-@@ -1026,7 +1108,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1026,23 +1137,35 @@ final class StatusTableViewController: LoopChartsTableViewController {
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
                  cell.setChartGenerator(generator: { [weak self] (frame) in
 -                    return self?.statusCharts.glucoseChart(withFrame: frame)?.view
-+                    return self?.dashboardGlucoseChart(withFrame: frame)
++                    return self?.readableChart(withFrame: frame,
++                        explanation: "Dots: CGM readings. Lines: predictions. Shaded band: target, when shown.") {
++                        self?.dashboardGlucoseChart(withFrame: $0)
++                    }
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Glucose", comment: "The title of the glucose and prediction graph"))
                  cell.doesNavigate = automaticDosingStatus.automaticDosingEnabled || !FeatureFlags.simpleBolusCalculatorEnabled
-@@ -1053,6 +1135,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+             case .iob:
+                 cell.setChartGenerator(generator: { [weak self] (frame) in
+-                    return self?.statusCharts.iobChart(withFrame: frame)?.view
++                    return self?.readableChart(withFrame: frame,
++                        explanation: "Estimated insulin still active in your body.") {
++                        self?.statusCharts.iobChart(withFrame: $0)?.view
++                    }
+                 })
+                 cell.setTitleLabelText(label: NSLocalizedString("Active Insulin", comment: "The title of the Insulin On-Board graph"))
+             case .dose:
+                 cell.setChartGenerator(generator: { [weak self] (frame) in
+-                    return self?.statusCharts.doseChart(withFrame: frame)?.view
++                    return self?.readableChart(withFrame: frame,
++                        explanation: "Insulin delivered over time: basal rates and boluses.") {
++                        self?.statusCharts.doseChart(withFrame: $0)?.view
++                    }
+                 })
+                 cell.setTitleLabelText(label: NSLocalizedString("Insulin Delivery", comment: "The title of the insulin delivery graph"))
+             case .cob:
+                 cell.setChartGenerator(generator: { [weak self] (frame) in
+-                    return self?.statusCharts.cobChart(withFrame: frame)?.view
++                    return self?.readableChart(withFrame: frame,
++                        explanation: "Estimated carbs still being absorbed from your logged meals.") {
++                        self?.statusCharts.cobChart(withFrame: $0)?.view
++                    }
+                 })
+                 cell.setTitleLabelText(label: NSLocalizedString("Active Carbohydrates", comment: "The title of the Carbs On-Board graph"))
+             }
+@@ -1053,6 +1176,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              cell.setAlpha(alpha: alpha)
  
              cell.setSubtitleTextColor(color: UIColor.secondaryLabel)
@@ -129,7 +189,16 @@ index 580d67e..a08be48 100644
  
              return cell
          case .status:
-@@ -1222,11 +1305,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1179,7 +1303,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+             switch ChartRow(rawValue: indexPath.row)! {
+             case .glucose:
+                 if let eventualGlucose = eventualGlucoseDescription {
+-                    cell.setSubtitleLabel(label: String(format: NSLocalizedString("Eventually %@", comment: "The subtitle format describing eventual glucose. (1: localized glucose value description)"), eventualGlucose))
++                    cell.setSubtitleLabel(label: String(format: NSLocalizedString(dashboardLayout == .original ? "Eventually %@" : "Predicted: %@", comment: "The subtitle format describing eventual glucose. (1: localized glucose value description)"), eventualGlucose))
+                 } else {
+                     cell.setSubtitleLabel(label: nil)
+                 }
+@@ -1222,11 +1346,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
              var availableSize = max(tableView.bounds.width, tableView.bounds.height)
              availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
  
@@ -143,24 +212,24 @@ index 580d67e..a08be48 100644
 +            case .original:
 +                return max(106, (isGlucose ? 0.37 : 0.21) * availableSize)
 +            case .glance:
-+                return max(isGlucose ? 330 : 120, (isGlucose ? 0.54 : 0.20) * availableSize)
++                return max(isGlucose ? 360 : 190, (isGlucose ? 0.54 : 0.20) * availableSize)
 +            case .graphFirst:
-+                return max(isGlucose ? 360 : 120, (isGlucose ? 0.62 : 0.18) * availableSize)
++                return max(isGlucose ? 400 : 180, (isGlucose ? 0.62 : 0.18) * availableSize)
 +            case .aurora:
-+                return max(isGlucose ? 240 : 120, (isGlucose ? 0.42 : 0.22) * availableSize)
++                return max(isGlucose ? 310 : 175, (isGlucose ? 0.42 : 0.22) * availableSize)
 +            case .telemetry:
-+                return max(isGlucose ? 210 : 145, (isGlucose ? 0.36 : 0.25) * availableSize)
++                return max(isGlucose ? 320 : 220, (isGlucose ? 0.36 : 0.25) * availableSize)
 +            case .zenith:
-+                return max(isGlucose ? 300 : 120, (isGlucose ? 0.65 : 0.18) * availableSize)
++                return max(isGlucose ? 360 : 200, (isGlucose ? 0.65 : 0.18) * availableSize)
 +            case .compact:
 +                // Keep labels and graph gestures usable at larger text sizes.
 +                let minimum: CGFloat = traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 160 : 106
-+                return max(isGlucose ? 280 : minimum, (isGlucose ? 0.42 : 0.14) * availableSize)
++                return max(isGlucose ? 300 : max(minimum, 170), (isGlucose ? 0.42 : 0.14) * availableSize)
              }
          case .hud, .status, .alertWarning:
              return UITableView.automaticDimension
 diff --git a/Loop/Loop/Views/SettingsView.swift b/Loop/Loop/Views/SettingsView.swift
-index 9f9e3aa..1c86423 100644
+index 9f9e3aa..5e1e96b 100644
 --- a/Loop/Loop/Views/SettingsView.swift
 +++ b/Loop/Loop/Views/SettingsView.swift
 @@ -7,6 +7,7 @@
@@ -291,24 +360,24 @@ index 9f9e3aa..1c86423 100644
 +    var title: String {
 +        switch self {
 +        case .original: return "Original Loop"
-+        case .glance: return "Horizon"
-+        case .graphFirst: return "Atlas"
-+        case .compact: return "Eclipse"
-+        case .aurora: return "Aurora"
-+        case .telemetry: return "Observatory"
-+        case .zenith: return "Zenith"
++        case .glance: return "Everyday cards"
++        case .graphFirst: return "Glucose focus"
++        case .compact: return "Simple cards"
++        case .aurora: return "Compact cards"
++        case .telemetry: return "Insulin focus"
++        case .zenith: return "Large numbers"
 +        }
 +    }
 +
 +    var detail: String {
 +        switch self {
 +        case .original: return "The standard Loop dashboard."
-+        case .glance: return "Planetary horizon, large glucose, and an open chart with a summary strip."
-+        case .graphFirst: return "Compact header and the largest view of glucose history and prediction."
-+        case .compact: return "An open glucose header with compact charts."
-+        case .aurora: return "Split glucose and device status, with balanced charts."
-+        case .telemetry: return "Device status first, with emphasis on glucose and insulin delivery."
-+        case .zenith: return "A bold glucose header and the largest glucose chart."
++        case .glance: return "Recommended. Large glucose, roomy graph cards, and plain-language explanations."
++        case .graphFirst: return "The most room for glucose history and prediction; supporting cards below."
++        case .compact: return "Simple glucose header and shorter supporting cards."
++        case .aurora: return "Glucose and device status side by side; compact, explained graph cards."
++        case .telemetry: return "Device status first and more space for insulin activity and delivery."
++        case .zenith: return "The largest glucose number with spacious, explained graph cards."
 +        }
 +    }
 +}
@@ -528,7 +597,7 @@ index 904f9d4..4d9d37e 100644
          didSet {
              guard let lifecycleProgress = lifecycleProgress else {
 diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
-index 3bd851e..21b91cc 100644
+index 3bd851e..d5ed486 100644
 --- a/Loop/LoopUI/Views/StatusBarHUDView.swift
 +++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
 @@ -9,6 +9,51 @@
@@ -595,7 +664,7 @@ index 3bd851e..21b91cc 100644
 +    public func setDashboardPresentation(_ presentation: DashboardPresentation) {
 +        if originalGlucoseFont == nil { originalGlucoseFont = cgmStatusHUD.glucoseValueHUD.glucoseLabel.font }
 +        self.presentation = presentation
-+        identityLabel.text = presentation == .original ? nil : "LOOP  /  RYAN"
++        identityLabel.text = presentation == .original ? nil : "GLUCOSE  /  LOOP"
 +        identityLabel.textColor = .secondaryLabel
 +        identityHeight.constant = presentation == .original ? 0 : 32
 +        var layout: Int
@@ -804,7 +873,7 @@ index 3bd851e..21b91cc 100644
 +                                         width: rect.width, height: rect.width * 0.45))
 +        if traitCollection.userInterfaceStyle == .dark,
 +           let image = UIImage(named: "DashboardHorizon", in: .main, compatibleWith: traitCollection) {
-+            image.draw(in: rect, blendMode: .normal, alpha: 0.8)
++            image.draw(in: rect, blendMode: .normal, alpha: 0.25)
 +        }
 +        context.restoreGState()
 +    }
