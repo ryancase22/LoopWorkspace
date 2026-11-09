@@ -1,8 +1,44 @@
+diff --git a/Loop/Loop/Extensions/ChartColorPalette+Loop.swift b/Loop/Loop/Extensions/ChartColorPalette+Loop.swift
+index 5da14fd..76e15f5 100644
+--- a/Loop/Loop/Extensions/ChartColorPalette+Loop.swift
++++ b/Loop/Loop/Extensions/ChartColorPalette+Loop.swift
+@@ -6,11 +6,31 @@
+ //  Copyright © 2017 LoopKit Authors. All rights reserved.
+ //
+ 
++import UIKit
+ import LoopUI
+ import LoopKitUI
+ 
+ 
+ extension ChartColorPalette {
++    /// Resolve styling at draw time so switching back restores the stock palette
++    /// without replacing chart managers or their glucose/insulin/carb data.
++    static var dashboard: ChartColorPalette {
++        let stock = ChartColorPalette.primary
++        return ChartColorPalette(
++            axisLine: stock.axisLine,
++            axisLabel: UIColor { traits in
++                let color: UIColor = DashboardLayout.selected == .original ? stock.axisLabel : .label
++                return color.resolvedColor(with: traits)
++            },
++            grid: UIColor { traits in
++                let color = stock.grid.resolvedColor(with: traits)
++                return DashboardLayout.selected == .original ? color : color.withAlphaComponent(0.28)
++            },
++            glucoseTint: stock.glucoseTint,
++            insulinTint: stock.insulinTint,
++            carbTint: stock.carbTint)
++    }
++
+     static var primary: ChartColorPalette {
+         return ChartColorPalette(axisLine: .axisLineColor, axisLabel: .axisLabelColor, grid: .gridColor, glucoseTint: .glucoseTintColor, insulinTint: .insulinTintColor, carbTint: .carbTintColor)
+     }
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..0f97c86 100644
+index 580d67e..bed8d56 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
-@@ -29,6 +29,95 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -29,6 +29,97 @@ final class StatusTableViewController: LoopChartsTableViewController {
  
      private let log = OSLog(category: "StatusTableViewController")
  
@@ -27,15 +63,17 @@ index 580d67e..0f97c86 100644
 +
 +    /// Style only chart cells; alert/status rows keep their native warning presentation.
 +    private func applyDashboardCard(to cell: UITableViewCell) {
++        let chartCell = cell as? ChartTableViewCell
++        chartCell?.setSubtitleTextColor(color: dashboardLayout == .original ? .secondaryLabel : .label)
 +        guard dashboardLayout != .original else {
 +            cell.backgroundConfiguration = nil
 +            return
 +        }
 +        var card = UIBackgroundConfiguration.clear()
-+        card.backgroundColor = .secondarySystemGroupedBackground
-+        card.cornerRadius = 20
-+        card.backgroundInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
-+        card.strokeColor = .separator
++        card.backgroundColor = dashboardLayout.presentation.surface
++        card.cornerRadius = dashboardLayout == .compact ? 12 : 18
++        card.backgroundInsets = NSDirectionalEdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
++        card.strokeColor = dashboardLayout.presentation.accent.withAlphaComponent(0.18)
 +        card.strokeWidth = 0.5
 +        cell.backgroundConfiguration = card
 +    }
@@ -98,7 +136,7 @@ index 580d67e..0f97c86 100644
      lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
  
      var onboardingManager: OnboardingManager!
-@@ -50,6 +139,8 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -50,6 +141,8 @@ final class StatusTableViewController: LoopChartsTableViewController {
          super.viewDidLoad()
          
          setupToolbarItems()
@@ -107,7 +145,7 @@ index 580d67e..0f97c86 100644
          
          tableView.register(BolusProgressTableViewCell.nib(), forCellReuseIdentifier: BolusProgressTableViewCell.className)
          tableView.register(AlertPermissionsDisabledWarningCell.self, forCellReuseIdentifier: AlertPermissionsDisabledWarningCell.className)
-@@ -67,6 +158,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -67,6 +160,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
          let notificationCenter = NotificationCenter.default
  
          notificationObservers += [
@@ -117,7 +155,7 @@ index 580d67e..0f97c86 100644
              notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
                  let rawContext = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
                  let context = LoopDataManager.LoopUpdateContext(rawValue: rawContext)
-@@ -165,6 +259,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -165,6 +261,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
          navigationController?.setToolbarHidden(false, animated: animated)
          
          updateToolbarItems()
@@ -125,7 +163,16 @@ index 580d67e..0f97c86 100644
  
          alertPermissionsChecker.checkNow()
  
-@@ -1017,6 +1112,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -384,7 +481,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+         deviceManager.pumpManager?.addStatusObserver(self, queue: .main)
+     }
+     
+-    private lazy var statusCharts = StatusChartsManager(colors: .primary, settings: .default, traitCollection: traitCollection)
++    private lazy var statusCharts = StatusChartsManager(colors: .dashboard, settings: .default, traitCollection: traitCollection)
+ 
+     override func createChartsManager() -> ChartsManager {
+         return statusCharts
+@@ -1017,6 +1114,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              }
          case .hud:
              let cell = tableView.dequeueReusableCell(withIdentifier: HUDViewTableViewCell.className, for: indexPath) as! HUDViewTableViewCell
@@ -133,7 +180,7 @@ index 580d67e..0f97c86 100644
              hudView = cell.hudView
  
              return cell
-@@ -1025,24 +1121,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1025,24 +1123,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
  
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
@@ -166,7 +213,7 @@ index 580d67e..0f97c86 100644
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Active Carbohydrates", comment: "The title of the Carbs On-Board graph"))
              }
-@@ -1053,6 +1149,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1053,6 +1151,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              cell.setAlpha(alpha: alpha)
  
              cell.setSubtitleTextColor(color: UIColor.secondaryLabel)
@@ -174,7 +221,7 @@ index 580d67e..0f97c86 100644
  
              return cell
          case .status:
-@@ -1179,7 +1276,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1179,7 +1278,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
                  if let eventualGlucose = eventualGlucoseDescription {
@@ -183,7 +230,7 @@ index 580d67e..0f97c86 100644
                  } else {
                      cell.setSubtitleLabel(label: nil)
                  }
-@@ -1222,12 +1319,11 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1222,12 +1321,11 @@ final class StatusTableViewController: LoopChartsTableViewController {
              var availableSize = max(tableView.bounds.width, tableView.bounds.height)
              availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
  
@@ -371,16 +418,17 @@ index 9f9e3aa..1fa2aac 100644
 +    }
 +}
 diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
-index b29b1d5..e492939 100644
+index b29b1d5..1a99801 100644
 --- a/Loop/LoopTests/LoopTests.swift
 +++ b/Loop/LoopTests/LoopTests.swift
-@@ -7,10 +7,244 @@
+@@ -7,10 +7,271 @@
  //
  
  import XCTest
 +import UIKit
 +import HealthKit
 +import LoopUI
++import LoopKitUI
  
  @testable import Loop
  
@@ -403,6 +451,33 @@ index b29b1d5..e492939 100644
 +        for layout in DashboardLayout.allCases {
 +            defaults.set(layout.rawValue, forKey: key)
 +            XCTAssertEqual(DashboardLayout.selected, layout)
++        }
++    }
++
++    func testDashboardPaletteRetainsSemanticColorsAndRestoresOriginal() {
++        let defaults = UserDefaults.standard
++        let previous = defaults.object(forKey: DashboardLayout.preferenceKey)
++        defer {
++            if let previous = previous { defaults.set(previous, forKey: DashboardLayout.preferenceKey) }
++            else { defaults.removeObject(forKey: DashboardLayout.preferenceKey) }
++        }
++        let palette = ChartColorPalette.dashboard
++        let stock = ChartColorPalette.primary
++        for style in [UIUserInterfaceStyle.light, .dark] {
++            let traits = UITraitCollection(userInterfaceStyle: style)
++            for layout in DashboardLayout.allCases {
++                defaults.set(layout.rawValue, forKey: DashboardLayout.preferenceKey)
++                XCTAssertEqual(palette.glucoseTint.resolvedColor(with: traits), stock.glucoseTint.resolvedColor(with: traits))
++                XCTAssertEqual(palette.insulinTint.resolvedColor(with: traits), stock.insulinTint.resolvedColor(with: traits))
++                XCTAssertEqual(palette.carbTint.resolvedColor(with: traits), stock.carbTint.resolvedColor(with: traits))
++                if layout == .original {
++                    XCTAssertEqual(palette.grid.resolvedColor(with: traits), stock.grid.resolvedColor(with: traits))
++                    XCTAssertEqual(palette.axisLabel.resolvedColor(with: traits), stock.axisLabel.resolvedColor(with: traits))
++                } else {
++                    XCTAssertEqual(palette.axisLabel.resolvedColor(with: traits), UIColor.label.resolvedColor(with: traits))
++                    XCTAssertEqual(palette.grid.resolvedColor(with: traits).cgColor.alpha, 0.28, accuracy: 0.01)
++                }
++            }
 +        }
 +    }
 +
@@ -494,7 +569,6 @@ index b29b1d5..e492939 100644
 +
 +    @MainActor
 +    func testPresentationLayoutsAtPhoneWidthsAndTextSizes() {
-+        XCTAssertNotNil(UIImage(named: "DashboardHorizon", in: .main, compatibleWith: nil))
 +        for width in [CGFloat(320), 390, 430] {
 +            for dark in [false, true] {
 +                for accessibility in [false, true] {
@@ -637,7 +711,7 @@ index 904f9d4..4d9d37e 100644
          didSet {
              guard let lifecycleProgress = lifecycleProgress else {
 diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
-index 3bd851e..e1790af 100644
+index 3bd851e..c7f9f26 100644
 --- a/Loop/LoopUI/Views/StatusBarHUDView.swift
 +++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
 @@ -9,6 +9,51 @@
@@ -651,7 +725,7 @@ index 3bd851e..e1790af 100644
 +    public var accent: UIColor {
 +        switch self {
 +        case .original: return .secondaryLabel
-+        case .orbit: return .systemBlue
++        case .orbit: return .systemTeal
 +        case .missionControl: return .systemTeal
 +        case .eclipse: return .systemPurple
 +        case .aurora: return .systemMint
@@ -665,8 +739,8 @@ index 3bd851e..e1790af 100644
 +            switch self {
 +            case .original: return .secondarySystemBackground
 +            case .orbit: return traits.userInterfaceStyle == .dark
-+                ? UIColor(red: 0.035, green: 0.065, blue: 0.115, alpha: 1)
-+                : UIColor(red: 0.94, green: 0.97, blue: 1, alpha: 1)
++                ? UIColor(red: 0.025, green: 0.075, blue: 0.08, alpha: 1)
++                : UIColor(red: 0.94, green: 0.98, blue: 0.98, alpha: 1)
 +            case .missionControl: return traits.userInterfaceStyle == .dark
 +                ? UIColor(red: 0.035, green: 0.085, blue: 0.095, alpha: 1)
 +                : UIColor(red: 0.94, green: 0.98, blue: 0.98, alpha: 1)
@@ -692,7 +766,7 @@ index 3bd851e..e1790af 100644
  public class StatusBarHUDView: UIView, NibLoadable {
      
      @IBOutlet public weak var cgmStatusHUD: CGMStatusHUDView!
-@@ -18,13 +63,144 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -18,13 +63,140 @@ public class StatusBarHUDView: UIView, NibLoadable {
      @IBOutlet public weak var pumpStatusHUD: PumpStatusHUDView!
          
      public var containerView: UIStackView!
@@ -711,7 +785,7 @@ index 3bd851e..e1790af 100644
 +        let layout = presentation != .original && traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 1 : 0
 +        setHUDLayout(layout)
 +        if presentation != .original {
-+            let size: CGFloat = presentation == .zenith ? (bounds.width < 350 ? 32 : 36) : 30
++            let size: CGFloat = presentation == .zenith ? (bounds.width < 350 ? 32 : 36) : (bounds.width < 350 ? 30 : 34)
 +            cgmStatusHUD.glucoseValueHUD.glucoseLabel.font = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(
 +                for: .systemFont(ofSize: size, weight: .bold), maximumPointSize: 40, compatibleWith: traitCollection)
 +        }
@@ -720,9 +794,6 @@ index 3bd851e..e1790af 100644
 +        invalidateIntrinsicContentSize()
 +        cgmStatusHUD.setDashboardSurface(presentation == .original ? nil : .clear)
 +        pumpStatusHUD.setDashboardSurface(presentation == .original ? nil : .clear)
-+        spaceBackdrop.isHidden = presentation == .original
-+        spaceBackdrop.accent = presentation.accent
-+        spaceBackdrop.setNeedsDisplay()
 +        backgroundColor = presentation.surface
 +        layer.cornerRadius = 0
 +        // Keep the original HUD colors: these carry actual device and glucose status.
@@ -745,7 +816,6 @@ index 3bd851e..e1790af 100644
 +    private var originalHUDConstraints: [NSLayoutConstraint]?
 +    private var isGlanceLayout = false
 +    private var hudLayout = 0
-+    private let spaceBackdrop = DashboardSpaceBackdrop()
 +
 +
 +    /// Rearranges the existing HUD views, retaining their warning, staleness,
@@ -838,15 +908,8 @@ index 3bd851e..e1790af 100644
              }
          }
      }
-@@ -48,20 +224,39 @@ public class StatusBarHUDView: UIView, NibLoadable {
-     
-     func setup() {
+@@ -50,13 +222,22 @@ public class StatusBarHUDView: UIView, NibLoadable {
          containerView = (StatusBarHUDView.nib().instantiate(withOwner: self, options: nil)[0] as! UIStackView)
-+        spaceBackdrop.isUserInteractionEnabled = false
-+        spaceBackdrop.isAccessibilityElement = false
-+        spaceBackdrop.isHidden = true
-+        spaceBackdrop.backgroundColor = .clear
-+        insertSubview(spaceBackdrop, at: 0)
          containerView.translatesAutoresizingMaskIntoConstraints = false
          self.addSubview(containerView)
 +        identityLabel.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -870,43 +933,3 @@ index 3bd851e..e1790af 100644
          ])
          
          self.backgroundColor = UIColor.secondarySystemBackground
-     }
-         
-+    public override func layoutSubviews() {
-+        super.layoutSubviews()
-+        spaceBackdrop.frame = bounds
-+    }
-+
-     public func removePumpManagerProvidedView() {
-         pumpStatusHUD.removePumpManagerProvidedHUD()
-     }
-@@ -70,3 +265,29 @@ public class StatusBarHUDView: UIView, NibLoadable {
-         pumpStatusHUD.addPumpManagerProvidedHUDView(pumpManagerProvidedHUD)
-     }
- }
-+
-+/// Static decorative artwork. It never encodes a medical measurement or status.
-+private final class DashboardSpaceBackdrop: UIView {
-+    var accent: UIColor = .systemBlue
-+
-+    override func draw(_ rect: CGRect) {
-+        guard let context = UIGraphicsGetCurrentContext() else { return }
-+        context.saveGState()
-+        context.clip(to: rect)
-+        let colors = [accent.withAlphaComponent(0.20).cgColor, UIColor.clear.cgColor] as CFArray
-+        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
-+            context.drawRadialGradient(gradient, startCenter: CGPoint(x: rect.width * 0.85, y: rect.height),
-+                startRadius: 0, endCenter: CGPoint(x: rect.width * 0.85, y: rect.height),
-+                endRadius: rect.width * 0.9, options: [])
-+        }
-+        context.setStrokeColor(accent.withAlphaComponent(0.35).cgColor)
-+        context.setLineWidth(1)
-+        context.strokeEllipse(in: CGRect(x: rect.width * 0.35, y: rect.height * 0.60,
-+                                         width: rect.width, height: rect.width * 0.45))
-+        if traitCollection.userInterfaceStyle == .dark,
-+           let image = UIImage(named: "DashboardHorizon", in: .main, compatibleWith: traitCollection) {
-+            image.draw(in: rect, blendMode: .normal, alpha: 0.25)
-+        }
-+        context.restoreGState()
-+    }
-+}
