@@ -35,10 +35,10 @@ index 5da14fd..76e15f5 100644
          return ChartColorPalette(axisLine: .axisLineColor, axisLabel: .axisLabelColor, grid: .gridColor, glucoseTint: .glucoseTintColor, insulinTint: .insulinTintColor, carbTint: .carbTintColor)
      }
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..bed8d56 100644
+index 580d67e..f84bbb9 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
-@@ -29,6 +29,97 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -29,6 +29,100 @@ final class StatusTableViewController: LoopChartsTableViewController {
  
      private let log = OSLog(category: "StatusTableViewController")
  
@@ -52,6 +52,9 @@ index 580d67e..bed8d56 100644
 +        tableView.sectionHeaderTopPadding = selected == .original ? (originalSectionHeaderPadding ?? 22) : 0
 +        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
 +        hudView?.setDashboardPresentation(selected.presentation)
++        for chart in StatusChartsManager.ChartIndex.allCases {
++            statusCharts.invalidateChart(atIndex: chart.rawValue)
++        }
 +        for cell in tableView.visibleCells where cell is ChartTableViewCell {
 +            applyDashboardCard(to: cell)
 +        }
@@ -136,7 +139,7 @@ index 580d67e..bed8d56 100644
      lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
  
      var onboardingManager: OnboardingManager!
-@@ -50,6 +141,8 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -50,6 +144,8 @@ final class StatusTableViewController: LoopChartsTableViewController {
          super.viewDidLoad()
          
          setupToolbarItems()
@@ -145,7 +148,7 @@ index 580d67e..bed8d56 100644
          
          tableView.register(BolusProgressTableViewCell.nib(), forCellReuseIdentifier: BolusProgressTableViewCell.className)
          tableView.register(AlertPermissionsDisabledWarningCell.self, forCellReuseIdentifier: AlertPermissionsDisabledWarningCell.className)
-@@ -67,6 +160,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -67,6 +163,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
          let notificationCenter = NotificationCenter.default
  
          notificationObservers += [
@@ -155,7 +158,7 @@ index 580d67e..bed8d56 100644
              notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
                  let rawContext = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
                  let context = LoopDataManager.LoopUpdateContext(rawValue: rawContext)
-@@ -165,6 +261,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -165,6 +264,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
          navigationController?.setToolbarHidden(false, animated: animated)
          
          updateToolbarItems()
@@ -163,7 +166,7 @@ index 580d67e..bed8d56 100644
  
          alertPermissionsChecker.checkNow()
  
-@@ -384,7 +481,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -384,7 +484,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
          deviceManager.pumpManager?.addStatusObserver(self, queue: .main)
      }
      
@@ -172,7 +175,7 @@ index 580d67e..bed8d56 100644
  
      override func createChartsManager() -> ChartsManager {
          return statusCharts
-@@ -1017,6 +1114,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1017,6 +1117,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              }
          case .hud:
              let cell = tableView.dequeueReusableCell(withIdentifier: HUDViewTableViewCell.className, for: indexPath) as! HUDViewTableViewCell
@@ -180,7 +183,7 @@ index 580d67e..bed8d56 100644
              hudView = cell.hudView
  
              return cell
-@@ -1025,24 +1123,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1025,24 +1126,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
  
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
@@ -213,7 +216,7 @@ index 580d67e..bed8d56 100644
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Active Carbohydrates", comment: "The title of the Carbs On-Board graph"))
              }
-@@ -1053,6 +1151,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1053,6 +1154,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              cell.setAlpha(alpha: alpha)
  
              cell.setSubtitleTextColor(color: UIColor.secondaryLabel)
@@ -221,7 +224,7 @@ index 580d67e..bed8d56 100644
  
              return cell
          case .status:
-@@ -1179,7 +1278,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1179,7 +1281,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              switch ChartRow(rawValue: indexPath.row)! {
              case .glucose:
                  if let eventualGlucose = eventualGlucoseDescription {
@@ -230,7 +233,7 @@ index 580d67e..bed8d56 100644
                  } else {
                      cell.setSubtitleLabel(label: nil)
                  }
-@@ -1222,12 +1321,11 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1222,12 +1324,11 @@ final class StatusTableViewController: LoopChartsTableViewController {
              var availableSize = max(tableView.bounds.width, tableView.bounds.height)
              availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
  
