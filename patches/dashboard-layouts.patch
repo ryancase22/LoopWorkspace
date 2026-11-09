@@ -120,10 +120,10 @@ index 5da14fd..76e15f5 100644
          return ChartColorPalette(axisLine: .axisLineColor, axisLabel: .axisLabelColor, grid: .gridColor, glucoseTint: .glucoseTintColor, insulinTint: .insulinTintColor, carbTint: .carbTintColor)
      }
 diff --git a/Loop/Loop/Managers/Live Activity/GlucoseActivityAttributes.swift b/Loop/Loop/Managers/Live Activity/GlucoseActivityAttributes.swift
-index 1b3328d..5934ee6 100644
+index 1b3328d..dd214f5 100644
 --- a/Loop/Loop/Managers/Live Activity/GlucoseActivityAttributes.swift	
 +++ b/Loop/Loop/Managers/Live Activity/GlucoseActivityAttributes.swift	
-@@ -39,6 +39,13 @@ public struct GlucoseActivityAttributes: ActivityAttributes {
+@@ -39,6 +39,16 @@ public struct GlucoseActivityAttributes: ActivityAttributes {
          public let predicatedStartDate: Date?
          public let predicatedInterval: TimeInterval?
          public let yAxisMarks: [Double]
@@ -131,14 +131,17 @@ index 1b3328d..5934ee6 100644
 +        // Optional so older Live Activity payloads still decode after an app update.
 +        public var compactInsulinOnBoard: String? = nil
 +
++        public static let compactReadingMaxAge: TimeInterval = 10 * 60
++        public var compactStaleDate: Date { date.addingTimeInterval(Self.compactReadingMaxAge) }
++
 +        public func compactReadingIsStale(at now: Date, activityIsStale: Bool) -> Bool {
-+            ended || activityIsStale || now.timeIntervalSince(date) > 10 * 60 || date.timeIntervalSince(now) > 60
++            ended || activityIsStale || now >= compactStaleDate || date.timeIntervalSince(now) > 60
 +        }
      }
      
      public let mode: LiveActivityMode
 diff --git a/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift b/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift
-index 5d9122c..e46fdc7 100644
+index 5d9122c..efa010e 100644
 --- a/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift	
 +++ b/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift	
 @@ -177,6 +177,12 @@ class LiveActivityManager : LiveActivityManagerProxy {
@@ -154,7 +157,7 @@ index 5d9122c..e46fdc7 100644
              let state = GlucoseActivityAttributes.ContentState(
                  date: currentGlucose.startDate,
                  ended: false,
-@@ -198,7 +204,8 @@ class LiveActivityManager : LiveActivityManagerProxy {
+@@ -198,12 +204,15 @@ class LiveActivityManager : LiveActivityManagerProxy {
                  predicatedGlucose: predicatedGlucose,
                  predicatedStartDate: statusContext?.predictedGlucose?.startDate,
                  predicatedInterval: statusContext?.predictedGlucose?.interval,
@@ -164,6 +167,14 @@ index 5d9122c..e46fdc7 100644
              )
              
              await self.activity?.update(ActivityContent(
+                 state: state,
+-                staleDate: Date.now.addingTimeInterval(.hours(1))
++                // Mark the displayed reading stale from its sample time, even if no
++                // further updates arrive. This changes display freshness only.
++                staleDate: state.compactStaleDate
+             ))
+         }
+     }
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
 index 580d67e..da4321b 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
@@ -711,10 +722,10 @@ index 9f9e3aa..05118d0 100644
 +    }
 +}
 diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
-index b29b1d5..ff65c50 100644
+index b29b1d5..2dc2d15 100644
 --- a/Loop/LoopTests/LoopTests.swift
 +++ b/Loop/LoopTests/LoopTests.swift
-@@ -7,10 +7,383 @@
+@@ -7,10 +7,384 @@
  //
  
  import XCTest
@@ -871,6 +882,7 @@ index b29b1d5..ff65c50 100644
 +    func testCompactLiveActivityStalenessAndOlderPayloadCompatibility() throws {
 +        let date = Date(timeIntervalSince1970: 100_000)
 +        var state = GlucoseActivityAttributes.ContentState(date: date, ended: false, preset: nil, glucoseRanges: [], currentGlucose: 112, eventualGlucose: nil, trendType: nil, delta: "+1", isMmol: false, isCloseLoop: true, lastCompleted: date, bottomRow: [], glucoseSamples: [], predicatedGlucose: [], predicatedStartDate: nil, predicatedInterval: nil, yAxisMarks: [])
++        XCTAssertEqual(state.compactStaleDate, date.addingTimeInterval(600))
 +        XCTAssertFalse(state.compactReadingIsStale(at: date.addingTimeInterval(300), activityIsStale: false))
 +        XCTAssertTrue(state.compactReadingIsStale(at: date.addingTimeInterval(601), activityIsStale: false))
 +        XCTAssertTrue(state.compactReadingIsStale(at: date.addingTimeInterval(-61), activityIsStale: false))
