@@ -1,3 +1,88 @@
+diff --git a/Loop/Loop Widget Extension/Live Activity/GlucoseLiveActivityConfiguration.swift b/Loop/Loop Widget Extension/Live Activity/GlucoseLiveActivityConfiguration.swift
+index b288c71..46a04a1 100644
+--- a/Loop/Loop Widget Extension/Live Activity/GlucoseLiveActivityConfiguration.swift	
++++ b/Loop/Loop Widget Extension/Live Activity/GlucoseLiveActivityConfiguration.swift	
+@@ -212,42 +212,51 @@ struct GlucoseLiveActivityConfiguration: Widget {
+             ? HKUnit.millimolesPerLiter.localizedShortUnitString
+             : HKUnit.milligramsPerDeciliter.localizedShortUnitString
+         
+-        let glucoseColor = !context.attributes.useLimits ? .primary : getGlucoseColor(context: context)
+-        let currentBG = (glucoseFormatter.string(from: context.state.currentGlucose) ?? "??") + getArrowImage(context.state.trendType)
+-        let eventualBG = formatEventualBG(value: context.state.eventualGlucose, formatter: glucoseFormatter)
+-        
+-        HStack(spacing: 10) {
+-            loopIcon(context, size: 24)
+-            
+-            HStack(alignment: .top) {
+-                VStack(alignment: .leading) {
+-                    Text(currentBG)
+-                        .font(.headline)
+-                        .foregroundStyle(glucoseColor)
+-                    Text(context.state.delta + " " + unit)
+-                        .font(.caption2)
+-                        .foregroundStyle(Color(white: 0.7))
+-                }
+-                
+-                Spacer()
+-                
+-                VStack(alignment: .trailing) {
+-                    Text(eventualBG)
+-                        .font(.headline)
+-                        .foregroundStyle(.primary)
+-                    
++        let stale = context.state.compactReadingIsStale(at: Date(), activityIsStale: context.isStale)
++        let glucoseColor: Color = !context.attributes.useLimits ? .primary : getGlucoseColor(context: context)
++        let glucose = glucoseFormatter.string(from: context.state.currentGlucose) ?? "??"
++
++        VStack(alignment: .leading, spacing: 4) {
++            HStack(alignment: .center, spacing: 8) {
++                Text(stale ? "—" : glucose + getArrowImage(context.state.trendType))
++                    .font(.system(size: 32, weight: .bold, design: .rounded))
++                    .monospacedDigit()
++                    .foregroundStyle(stale ? Color.secondary : glucoseColor)
++                    .lineLimit(1)
++                    .minimumScaleFactor(0.65)
++                Spacer(minLength: 0)
++                loopIcon(context, size: 22)
++            }
++            HStack(spacing: 4) {
++                if stale {
++                    Text(context.state.ended ? "Ended" : "Old reading")
++                } else {
+                     Text(unit)
+-                        .font(.caption2)
+-                        .foregroundStyle(Color(white: 0.7))
++                    Text("· " + context.state.delta)
+                 }
++                Spacer(minLength: 0)
++                Text(context.state.date, style: .time)
+             }
++            .font(.caption2)
++            .foregroundStyle(.secondary)
++            .lineLimit(1)
++            .minimumScaleFactor(0.8)
++
++            HStack(spacing: 4) {
++                Text("IOB")
++                Spacer(minLength: 0)
++                Text(stale ? "—" : (context.state.compactInsulinOnBoard ?? "—") + " U")
++                    .monospacedDigit()
++            }
++            .font(.caption.weight(.semibold))
++            .lineLimit(1)
+         }
+-        .frame(maxWidth: .infinity, maxHeight: .infinity)  // Allow HStack to use full available width
++        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+         .privacySensitive()
+-        .padding(.all, 14)
++        .padding(12)
+         .background(Color.clear)
+     }
+-    
++
+     private func formatEventualBG(value: Double?, formatter: NumberFormatter) -> String {
+         guard let value = value else {
+             return "??"
 diff --git a/Loop/Loop/Extensions/ChartColorPalette+Loop.swift b/Loop/Loop/Extensions/ChartColorPalette+Loop.swift
 index 5da14fd..76e15f5 100644
 --- a/Loop/Loop/Extensions/ChartColorPalette+Loop.swift
@@ -34,30 +119,90 @@ index 5da14fd..76e15f5 100644
      static var primary: ChartColorPalette {
          return ChartColorPalette(axisLine: .axisLineColor, axisLabel: .axisLabelColor, grid: .gridColor, glucoseTint: .glucoseTintColor, insulinTint: .insulinTintColor, carbTint: .carbTintColor)
      }
+diff --git a/Loop/Loop/Managers/Live Activity/GlucoseActivityAttributes.swift b/Loop/Loop/Managers/Live Activity/GlucoseActivityAttributes.swift
+index 1b3328d..5934ee6 100644
+--- a/Loop/Loop/Managers/Live Activity/GlucoseActivityAttributes.swift	
++++ b/Loop/Loop/Managers/Live Activity/GlucoseActivityAttributes.swift	
+@@ -39,6 +39,13 @@ public struct GlucoseActivityAttributes: ActivityAttributes {
+         public let predicatedStartDate: Date?
+         public let predicatedInterval: TimeInterval?
+         public let yAxisMarks: [Double]
++
++        // Optional so older Live Activity payloads still decode after an app update.
++        public var compactInsulinOnBoard: String? = nil
++
++        public func compactReadingIsStale(at now: Date, activityIsStale: Bool) -> Bool {
++            ended || activityIsStale || now.timeIntervalSince(date) > 10 * 60 || date.timeIntervalSince(now) > 60
++        }
+     }
+     
+     public let mode: LiveActivityMode
+diff --git a/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift b/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift
+index 5d9122c..e46fdc7 100644
+--- a/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift	
++++ b/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift	
+@@ -177,6 +177,12 @@ class LiveActivityManager : LiveActivityManagerProxy {
+                 isMmol: unit == HKUnit.millimolesPerLiter
+             )
+ 
++            let compactInsulinOnBoard: String
++            if let existing = bottomRow.first(where: { $0.label == BottomRowConfiguration.iob.name() }) {
++                compactInsulinOnBoard = existing.value
++            } else {
++                compactInsulinOnBoard = await getInsulinOnBoard()
++            }
+             let state = GlucoseActivityAttributes.ContentState(
+                 date: currentGlucose.startDate,
+                 ended: false,
+@@ -198,7 +204,8 @@ class LiveActivityManager : LiveActivityManagerProxy {
+                 predicatedGlucose: predicatedGlucose,
+                 predicatedStartDate: statusContext?.predictedGlucose?.startDate,
+                 predicatedInterval: statusContext?.predictedGlucose?.interval,
+-                yAxisMarks: chartYAxis
++                yAxisMarks: chartYAxis,
++                compactInsulinOnBoard: compactInsulinOnBoard
+             )
+             
+             await self.activity?.update(ActivityContent(
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..f84bbb9 100644
+index 580d67e..da4321b 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
-@@ -29,6 +29,100 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -29,6 +29,115 @@ final class StatusTableViewController: LoopChartsTableViewController {
  
      private let log = OSLog(category: "StatusTableViewController")
  
 +    private var dashboardLayout = DashboardLayout.selected
++    private var dashboardCards = DashboardCard.selected
++    private var podCountdownEnabled = UserDefaults.standard.object(forKey: DashboardCard.podCountdownKey) as? Bool ?? true
++    var displayedDashboardCards: [DashboardCard] {
++        dashboardLayout == .original ? DashboardCard.allCases : dashboardCards
++    }
++    func chartRow(at index: Int) -> DashboardCard { displayedDashboardCards[index] }
++
++    private func updatePodCountdown() {
++        let pump = deviceManager.pumpManager
++        let expiration = DashboardPodStatus.expiration(managerIdentifier: pump?.pluginIdentifier, rawState: pump?.rawState ?? [:])
++        hudView?.setPodExpiration(expiration, enabled: podCountdownEnabled)
++    }
 +
 +    private func applyDashboardLayoutIfNeeded() {
 +        let selected = DashboardLayout.selected
-+        guard selected != dashboardLayout else { return }
++        let cards = DashboardCard.selected
++        let countdown = UserDefaults.standard.object(forKey: DashboardCard.podCountdownKey) as? Bool ?? true
++        guard selected != dashboardLayout || cards != dashboardCards || countdown != podCountdownEnabled else { return }
 +        dashboardLayout = selected
++        dashboardCards = cards
++        podCountdownEnabled = countdown
 +        lastCardHeightBudget = nil
 +        tableView.sectionHeaderTopPadding = selected == .original ? (originalSectionHeaderPadding ?? 22) : 0
 +        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
 +        hudView?.setDashboardPresentation(selected.presentation)
++        updatePodCountdown()
 +        for chart in StatusChartsManager.ChartIndex.allCases {
 +            statusCharts.invalidateChart(atIndex: chart.rawValue)
 +        }
-+        for cell in tableView.visibleCells where cell is ChartTableViewCell {
-+            applyDashboardCard(to: cell)
-+        }
++        tableView.reloadData()
 +        tableView.beginUpdates()
 +        tableView.endUpdates()
 +        redrawCharts()
@@ -139,7 +284,7 @@ index 580d67e..f84bbb9 100644
      lazy var carbFormatter: QuantityFormatter = QuantityFormatter(for: .gram())
  
      var onboardingManager: OnboardingManager!
-@@ -50,6 +144,8 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -50,6 +159,8 @@ final class StatusTableViewController: LoopChartsTableViewController {
          super.viewDidLoad()
          
          setupToolbarItems()
@@ -148,7 +293,7 @@ index 580d67e..f84bbb9 100644
          
          tableView.register(BolusProgressTableViewCell.nib(), forCellReuseIdentifier: BolusProgressTableViewCell.className)
          tableView.register(AlertPermissionsDisabledWarningCell.self, forCellReuseIdentifier: AlertPermissionsDisabledWarningCell.className)
-@@ -67,6 +163,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -67,6 +178,9 @@ final class StatusTableViewController: LoopChartsTableViewController {
          let notificationCenter = NotificationCenter.default
  
          notificationObservers += [
@@ -158,7 +303,7 @@ index 580d67e..f84bbb9 100644
              notificationCenter.addObserver(forName: .LoopDataUpdated, object: deviceManager.loopManager, queue: nil) { [weak self] note in
                  let rawContext = note.userInfo?[LoopDataManager.LoopUpdateContextKey] as! LoopDataManager.LoopUpdateContext.RawValue
                  let context = LoopDataManager.LoopUpdateContext(rawValue: rawContext)
-@@ -165,6 +264,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -165,6 +279,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
          navigationController?.setToolbarHidden(false, animated: animated)
          
          updateToolbarItems()
@@ -166,7 +311,7 @@ index 580d67e..f84bbb9 100644
  
          alertPermissionsChecker.checkNow()
  
-@@ -384,7 +484,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -384,7 +499,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
          deviceManager.pumpManager?.addStatusObserver(self, queue: .main)
      }
      
@@ -175,17 +320,51 @@ index 580d67e..f84bbb9 100644
  
      override func createChartsManager() -> ChartsManager {
          return statusCharts
-@@ -1017,6 +1117,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -417,6 +532,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+ 
+         // This should be kept up to date immediately
+         hudView?.loopCompletionHUD.lastLoopCompleted = deviceManager.loopManager.lastLoopCompleted
++        updatePodCountdown()
+ 
+         guard !reloading && !deviceManager.authorizationRequired else {
+             return
+@@ -696,12 +812,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+ 
+     // MARK: - Chart Section Data
+ 
+-    private enum ChartRow: Int, CaseIterable {
+-        case glucose
+-        case iob
+-        case dose
+-        case cob
+-    }
++    private typealias ChartRow = DashboardCard
+ 
+     // MARK: Glucose
+ 
+@@ -916,7 +1027,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+         case .hud:
+             return shouldShowHUD ? 1 : 0
+         case .charts:
+-            return ChartRow.allCases.count
++            return displayedDashboardCards.count
+         case .status:
+             return shouldShowStatus ? StatusRow.allCases.count : 0
+         }
+@@ -1017,32 +1128,34 @@ final class StatusTableViewController: LoopChartsTableViewController {
              }
          case .hud:
              let cell = tableView.dequeueReusableCell(withIdentifier: HUDViewTableViewCell.className, for: indexPath) as! HUDViewTableViewCell
 +            cell.hudView.setDashboardPresentation(dashboardLayout.presentation)
              hudView = cell.hudView
++            updatePodCountdown()
  
              return cell
-@@ -1025,24 +1126,24 @@ final class StatusTableViewController: LoopChartsTableViewController {
+         case .charts:
+             let cell = tableView.dequeueReusableCell(withIdentifier: ChartTableViewCell.className, for: indexPath) as! ChartTableViewCell
  
-             switch ChartRow(rawValue: indexPath.row)! {
+-            switch ChartRow(rawValue: indexPath.row)! {
++            switch chartRow(at: indexPath.row) {
              case .glucose:
 -                cell.setChartGenerator(generator: { [weak self] (frame) in
 -                    return self?.statusCharts.glucoseChart(withFrame: frame)?.view
@@ -216,7 +395,7 @@ index 580d67e..f84bbb9 100644
                  })
                  cell.setTitleLabelText(label: NSLocalizedString("Active Carbohydrates", comment: "The title of the Carbs On-Board graph"))
              }
-@@ -1053,6 +1154,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1053,6 +1166,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
              cell.setAlpha(alpha: alpha)
  
              cell.setSubtitleTextColor(color: UIColor.secondaryLabel)
@@ -224,8 +403,12 @@ index 580d67e..f84bbb9 100644
  
              return cell
          case .status:
-@@ -1179,7 +1281,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
-             switch ChartRow(rawValue: indexPath.row)! {
+@@ -1176,10 +1290,10 @@ final class StatusTableViewController: LoopChartsTableViewController {
+     private func tableView(_ tableView: UITableView, updateSubtitleFor cell: ChartTableViewCell, at indexPath: IndexPath) {
+         switch Section(rawValue: indexPath.section)! {
+         case .charts:
+-            switch ChartRow(rawValue: indexPath.row)! {
++            switch chartRow(at: indexPath.row) {
              case .glucose:
                  if let eventualGlucose = eventualGlucoseDescription {
 -                    cell.setSubtitleLabel(label: String(format: NSLocalizedString("Eventually %@", comment: "The subtitle format describing eventual glucose. (1: localized glucose value description)"), eventualGlucose))
@@ -233,7 +416,7 @@ index 580d67e..f84bbb9 100644
                  } else {
                      cell.setSubtitleLabel(label: nil)
                  }
-@@ -1222,12 +1324,11 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1222,12 +1336,11 @@ final class StatusTableViewController: LoopChartsTableViewController {
              var availableSize = max(tableView.bounds.width, tableView.bounds.height)
              availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
  
@@ -242,16 +425,25 @@ index 580d67e..f84bbb9 100644
 -                return max(106, 0.37 * availableSize)
 -            case .iob, .dose, .cob:
 -                return max(106, 0.21 * availableSize)
-+            let row = ChartRow(rawValue: indexPath.row)!
++            let row = chartRow(at: indexPath.row)
 +            if dashboardLayout == .original {
 +                return max(106, (row == .glucose ? 0.37 : 0.21) * availableSize)
              }
-+            return dashboardLayout.fittedChartHeights(availableHeight: cardHeightBudget)[indexPath.row]
++            return dashboardLayout.fittedChartHeights(availableHeight: cardHeightBudget, cards: displayedDashboardCards)[indexPath.row]
          case .hud, .status, .alertWarning:
              return UITableView.automaticDimension
          }
+@@ -1306,7 +1419,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+                 }
+             }
+         case .charts:
+-            switch ChartRow(rawValue: indexPath.row)! {
++            switch chartRow(at: indexPath.row) {
+             case .glucose:
+                 if automaticDosingStatus.automaticDosingEnabled || !FeatureFlags.simpleBolusCalculatorEnabled {
+                     performSegue(withIdentifier: PredictionTableViewController.className, sender: indexPath)
 diff --git a/Loop/Loop/Views/SettingsView.swift b/Loop/Loop/Views/SettingsView.swift
-index 9f9e3aa..1fa2aac 100644
+index 9f9e3aa..05118d0 100644
 --- a/Loop/Loop/Views/SettingsView.swift
 +++ b/Loop/Loop/Views/SettingsView.swift
 @@ -7,6 +7,7 @@
@@ -262,16 +454,19 @@ index 9f9e3aa..1fa2aac 100644
  import LoopKitUI
  import MockKit
  import SwiftUI
-@@ -21,6 +22,8 @@ public struct SettingsView: View {
+@@ -21,6 +22,11 @@ public struct SettingsView: View {
      @Environment(\.glucoseTintColor) private var glucoseTintColor
      @Environment(\.insulinTintColor) private var insulinTintColor
  
 +    @AppStorage(DashboardLayout.preferenceKey) private var dashboardLayout = DashboardLayout.original.rawValue
++    @AppStorage(DashboardCard.orderKey) private var dashboardCardOrder = "0,1,2,3"
++    @AppStorage(DashboardCard.hiddenKey) private var hiddenDashboardCards = ""
++    @AppStorage(DashboardCard.podCountdownKey) private var showPodCountdown = true
 +
      @ObservedObject var viewModel: SettingsViewModel
      @ObservedObject var versionUpdateViewModel: VersionUpdateViewModel
  
-@@ -89,6 +92,7 @@ public struct SettingsView: View {
+@@ -89,6 +95,7 @@ public struct SettingsView: View {
                      }
                  }
                  Group {
@@ -279,7 +474,7 @@ index 9f9e3aa..1fa2aac 100644
                      if viewModel.servicesViewModel.showServices {
                          servicesSection
                      }
-@@ -195,6 +199,72 @@ extension SettingsView {
+@@ -195,6 +202,118 @@ extension SettingsView {
          }
      }
      
@@ -293,7 +488,53 @@ index 9f9e3aa..1fa2aac 100644
 +                        .foregroundColor(.secondary)
 +                }
 +            }
++            NavigationLink(destination: dashboardCardSelection) {
++                Text("Dashboard cards")
++            }
 +        }
++    }
++
++    private var dashboardCardSelection: some View {
++        List {
++            Section {
++                ForEach(DashboardCard.ordered(from: dashboardCardOrder), id: \.rawValue) { card in
++                    HStack {
++                        if card == .glucose {
++                            Text(card.title)
++                            Spacer()
++                            Text("Always shown").font(.caption).foregroundColor(.secondary)
++                        } else {
++                            Toggle(card.title, isOn: Binding(
++                                get: { !DashboardCard.hidden(from: hiddenDashboardCards).contains(card) },
++                                set: { visible in
++                                    var hidden = DashboardCard.hidden(from: hiddenDashboardCards)
++                                    if visible { hidden.remove(card) } else { hidden.insert(card) }
++                                    hiddenDashboardCards = hidden.sorted { $0.rawValue < $1.rawValue }
++                                        .map { String($0.rawValue) }.joined(separator: ",")
++                                }))
++                        }
++                    }
++                }
++                .onMove { source, destination in
++                    var order = DashboardCard.ordered(from: dashboardCardOrder)
++                    order.move(fromOffsets: source, toOffset: destination)
++                    dashboardCardOrder = order.map { String($0.rawValue) }.joined(separator: ",")
++                }
++            } header: { Text("Cards") }
++            Section {
++                Toggle("Pod countdown", isOn: $showPodCountdown)
++            }
++            Section {
++                Button("Reset card arrangement") {
++                    dashboardCardOrder = "0,1,2,3"
++                    hiddenDashboardCards = ""
++                    showPodCountdown = true
++                }
++            }
++        }
++        .environment(\.editMode, .constant(.active))
++        .insetGroupedListStyle()
++        .navigationTitle("Dashboard cards")
 +    }
 +
 +    private var dashboardLayoutSelection: some View {
@@ -352,7 +593,7 @@ index 9f9e3aa..1fa2aac 100644
      private var softwareUpdateSection: some View {
          Section(footer: Text(viewModel.versionUpdateViewModel.footer(appName: appName))) {
              NavigationLink(destination: viewModel.versionUpdateViewModel.softwareUpdateView) {
-@@ -698,3 +768,67 @@ public struct SettingsView_Previews: PreviewProvider {
+@@ -698,3 +817,116 @@ public struct SettingsView_Previews: PreviewProvider {
          }
      }
  }
@@ -369,7 +610,7 @@ index 9f9e3aa..1fa2aac 100644
 +
 +    // Allocate one finite viewport budget. Do not independently clamp each row,
 +    // which made the previous cards taller than the screen in total.
-+    func fittedChartHeights(availableHeight: CGFloat) -> [CGFloat] {
++    func fittedChartHeights(availableHeight: CGFloat, cards: [DashboardCard] = DashboardCard.allCases) -> [CGFloat] {
 +        let weights: [CGFloat]
 +        switch self {
 +        case .original, .glance: weights = [0.40, 0.20, 0.20, 0.20]
@@ -379,8 +620,10 @@ index 9f9e3aa..1fa2aac 100644
 +        case .telemetry: weights = [0.32, 0.24, 0.26, 0.18]
 +        case .zenith: weights = [0.40, 0.20, 0.20, 0.20]
 +        }
++        guard !cards.isEmpty else { return [] }
 +        let budget = max(0, availableHeight)
-+        let first = weights.prefix(3).map { floor(budget * $0) }
++        let total = cards.reduce(CGFloat(0)) { $0 + weights[$1.rawValue] }
++        let first = cards.dropLast().map { floor(budget * weights[$0.rawValue] / total) }
 +        return first + [max(0, budget - first.reduce(0, +))]
 +    }
 +
@@ -420,11 +663,58 @@ index 9f9e3aa..1fa2aac 100644
 +        }
 +    }
 +}
++
++/// Display preferences only. Glucose cannot be hidden; invalid stored values recover safely.
++enum DashboardCard: Int, CaseIterable {
++    case glucose, iob, dose, cob
++    static let orderKey = "com.ryancase.loop.dashboardCardOrder.v1"
++    static let hiddenKey = "com.ryancase.loop.dashboardHiddenCards.v1"
++    static let podCountdownKey = "com.ryancase.loop.podCountdown.v1"
++
++    var title: String {
++        switch self {
++        case .glucose: return "Glucose"
++        case .iob: return "Active Insulin"
++        case .dose: return "Insulin Delivery"
++        case .cob: return "Active Carbohydrates"
++        }
++    }
++
++    static func ordered(from value: String) -> [DashboardCard] {
++        let stored = value.split(separator: ",").compactMap { Int($0) }.compactMap(Self.init(rawValue:))
++        return (stored + allCases).reduce(into: []) { result, card in
++            if !result.contains(card) { result.append(card) }
++        }
++    }
++
++    static func hidden(from value: String) -> Set<DashboardCard> {
++        Set(value.split(separator: ",").compactMap { Int($0) }.compactMap(Self.init(rawValue:)).filter { $0 != .glucose })
++    }
++
++    static var selected: [DashboardCard] {
++        let defaults = UserDefaults.standard
++        let hidden = hidden(from: defaults.string(forKey: hiddenKey) ?? "")
++        return ordered(from: defaults.string(forKey: orderKey) ?? "").filter { !hidden.contains($0) }
++    }
++}
++
++/// Uses the current pod's recorded nominal expiry only. Never guesses from a progress bar.
++enum DashboardPodStatus {
++    static func expiration(managerIdentifier: String?, rawState: [String: Any]) -> Date? {
++        guard managerIdentifier == "Omni",
++              let pod = rawState["podState"] as? [String: Any],
++              pod["fault"] == nil,
++              pod["deliveryStoppedAt"] == nil,
++              pod["setupProgress"] as? Int == 8, // Omni SetupProgress.completed at the pinned revision
++              let expiration = pod["expiresAt"] as? Date else { return nil }
++        return expiration
++    }
++}
 diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
-index b29b1d5..1a99801 100644
+index b29b1d5..ff65c50 100644
 --- a/Loop/LoopTests/LoopTests.swift
 +++ b/Loop/LoopTests/LoopTests.swift
-@@ -7,10 +7,271 @@
+@@ -7,10 +7,383 @@
  //
  
  import XCTest
@@ -482,6 +772,118 @@ index b29b1d5..1a99801 100644
 +                }
 +            }
 +        }
++    }
++
++    func testCardPreferencesRecoverAndKeepGlucoseVisible() {
++        XCTAssertEqual(DashboardCard.ordered(from: "2,2,99,0,bad"), [.dose, .glucose, .iob, .cob])
++        XCTAssertEqual(DashboardCard.ordered(from: ""), DashboardCard.allCases)
++        XCTAssertEqual(DashboardCard.hidden(from: "0,1,2,3,99"), Set([.iob, .dose, .cob]))
++        let defaults = UserDefaults.standard
++        let keys = [DashboardLayout.preferenceKey, DashboardCard.orderKey, DashboardCard.hiddenKey]
++        let previous = keys.map { defaults.object(forKey: $0) }
++        defer {
++            for (key, value) in zip(keys, previous) {
++                if let value = value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
++            }
++        }
++        defaults.set("3,2,1,0", forKey: DashboardCard.orderKey)
++        defaults.set("0,2", forKey: DashboardCard.hiddenKey)
++        XCTAssertEqual(DashboardCard.selected, [.cob, .iob, .glucose])
++    }
++
++    @MainActor
++    func testReorderedRowsKeepTheirNativeMeaningAndOriginalOrder() {
++        let defaults = UserDefaults.standard
++        let keys = [DashboardLayout.preferenceKey, DashboardCard.orderKey, DashboardCard.hiddenKey]
++        let previous = keys.map { defaults.object(forKey: $0) }
++        defer {
++            for (key, value) in zip(keys, previous) {
++                if let value = value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
++            }
++        }
++        defaults.set("3,2,1,0", forKey: DashboardCard.orderKey)
++        defaults.set("2", forKey: DashboardCard.hiddenKey)
++        for layout in DashboardLayout.allCases {
++            defaults.set(layout.rawValue, forKey: DashboardLayout.preferenceKey)
++            let controller = StatusTableViewController(style: .plain)
++            let expected: [DashboardCard] = layout == .original ? [.glucose, .iob, .dose, .cob] : [.cob, .iob, .glucose]
++            XCTAssertEqual(controller.displayedDashboardCards, expected)
++            for (index, card) in expected.enumerated() { XCTAssertEqual(controller.chartRow(at: index), card) }
++        }
++    }
++
++    func testEveryVisibleCardCombinationUsesExactlyOneBudget() {
++        for layout in DashboardLayout.allCases where layout != .original {
++            for mask in 0..<8 {
++                let cards: [DashboardCard] = [.glucose] + [DashboardCard.iob, .dose, .cob].enumerated().compactMap {
++                    mask & (1 << $0.offset) != 0 ? $0.element : nil
++                }
++                for budget in [CGFloat(0), 280, 460, 596] {
++                    let rows = layout.fittedChartHeights(availableHeight: budget, cards: Array(cards.reversed()))
++                    XCTAssertEqual(rows.count, cards.count)
++                    XCTAssertEqual(rows.reduce(0, +), budget, accuracy: 0.01)
++                    XCTAssertTrue(rows.allSatisfy { $0.isFinite && $0 >= 0 })
++                }
++            }
++        }
++    }
++
++    @MainActor
++    func testPodCountdownOnlyUsesCurrentActiveOmniPod() {
++        let expiry = Date(timeIntervalSince1970: 100_000)
++        let valid: [String: Any] = ["podState": ["expiresAt": expiry, "setupProgress": 8]]
++        XCTAssertEqual(DashboardPodStatus.expiration(managerIdentifier: "Omni", rawState: valid), expiry)
++        XCTAssertNil(DashboardPodStatus.expiration(managerIdentifier: "OtherPump", rawState: valid))
++        XCTAssertNil(DashboardPodStatus.expiration(managerIdentifier: "Omni", rawState: [:]))
++        XCTAssertNil(DashboardPodStatus.expiration(managerIdentifier: "Omni", rawState: ["previousPodState": valid["podState"]!]))
++        for extra in [["fault": ["code": 1]], ["deliveryStoppedAt": expiry], ["setupProgress": 3], ["expiresAt": "invalid"]] as [[String: Any]] {
++            var pod = valid["podState"] as! [String: Any]
++            pod.merge(extra) { _, new in new }
++            XCTAssertNil(DashboardPodStatus.expiration(managerIdentifier: "Omni", rawState: ["podState": pod]))
++        }
++        XCTAssertEqual(StatusBarHUDView.podCountdownText(expiration: expiry, now: expiry.addingTimeInterval(-4500)), "Pod expiry in 1h 15m")
++        XCTAssertEqual(StatusBarHUDView.podCountdownText(expiration: expiry, now: expiry.addingTimeInterval(-1)), "Pod expiry in 0h 1m")
++        XCTAssertEqual(StatusBarHUDView.podCountdownText(expiration: expiry, now: expiry), "Pod expiry passed")
++    }
++
++    @MainActor
++    func testPodCountdownFitsAndOriginalRestoresNativeHeader() {
++        for width in [CGFloat(320), 390, 430] {
++            let hud = StatusBarHUDView(frame: CGRect(x: 0, y: 0, width: width, height: 100))
++            let nativeCGM = hud.cgmStatusHUD
++            hud.cgmStatusHUD.glucoseValueHUD.glucoseLabel.text = "112"
++            hud.setDashboardPresentation(.orbit)
++            hud.setPodExpiration(Date().addingTimeInterval(4500), enabled: true)
++            let shown = hud.systemLayoutSizeFitting(CGSize(width: width, height: 0), withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
++            XCTAssertLessThanOrEqual(shown.height, 112)
++            hud.setPodExpiration(nil, enabled: true)
++            let hidden = hud.systemLayoutSizeFitting(CGSize(width: width, height: 0), withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
++            XCTAssertEqual(shown.height - hidden.height, 18, accuracy: 1)
++            hud.setPodExpiration(Date(), enabled: false)
++            XCTAssertTrue(hud.cgmStatusHUD === nativeCGM)
++            hud.setDashboardPresentation(.original)
++            let original = hud.systemLayoutSizeFitting(CGSize(width: width, height: 0), withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
++            XCTAssertLessThanOrEqual(original.height, 90)
++        }
++    }
++
++    @available(iOS 16.2, *)
++    func testCompactLiveActivityStalenessAndOlderPayloadCompatibility() throws {
++        let date = Date(timeIntervalSince1970: 100_000)
++        var state = GlucoseActivityAttributes.ContentState(date: date, ended: false, preset: nil, glucoseRanges: [], currentGlucose: 112, eventualGlucose: nil, trendType: nil, delta: "+1", isMmol: false, isCloseLoop: true, lastCompleted: date, bottomRow: [], glucoseSamples: [], predicatedGlucose: [], predicatedStartDate: nil, predicatedInterval: nil, yAxisMarks: [])
++        XCTAssertFalse(state.compactReadingIsStale(at: date.addingTimeInterval(300), activityIsStale: false))
++        XCTAssertTrue(state.compactReadingIsStale(at: date.addingTimeInterval(601), activityIsStale: false))
++        XCTAssertTrue(state.compactReadingIsStale(at: date.addingTimeInterval(-61), activityIsStale: false))
++        XCTAssertTrue(state.compactReadingIsStale(at: date, activityIsStale: true))
++        state.compactInsulinOnBoard = "1.2"
++        let encoded = try JSONEncoder().encode(state)
++        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
++        legacy.removeValue(forKey: "compactInsulinOnBoard")
++        let decoded = try JSONDecoder().decode(GlucoseActivityAttributes.ContentState.self, from: JSONSerialization.data(withJSONObject: legacy))
++        XCTAssertNil(decoded.compactInsulinOnBoard)
++        XCTAssertEqual(decoded.currentGlucose, 112)
++        state = GlucoseActivityAttributes.ContentState(date: date, ended: true, preset: nil, glucoseRanges: [], currentGlucose: 112, eventualGlucose: nil, trendType: nil, delta: "+1", isMmol: false, isCloseLoop: true, lastCompleted: date, bottomRow: [], glucoseSamples: [], predicatedGlucose: [], predicatedStartDate: nil, predicatedInterval: nil, yAxisMarks: [])
++        XCTAssertTrue(state.compactReadingIsStale(at: date, activityIsStale: false))
 +    }
 +
 +    func testAllSixLayoutsFitOneViewportBudget() {
@@ -714,7 +1116,7 @@ index 904f9d4..4d9d37e 100644
          didSet {
              guard let lifecycleProgress = lifecycleProgress else {
 diff --git a/Loop/LoopUI/Views/StatusBarHUDView.swift b/Loop/LoopUI/Views/StatusBarHUDView.swift
-index 3bd851e..c7f9f26 100644
+index 3bd851e..37f66b2 100644
 --- a/Loop/LoopUI/Views/StatusBarHUDView.swift
 +++ b/Loop/LoopUI/Views/StatusBarHUDView.swift
 @@ -9,6 +9,51 @@
@@ -769,7 +1171,7 @@ index 3bd851e..c7f9f26 100644
  public class StatusBarHUDView: UIView, NibLoadable {
      
      @IBOutlet public weak var cgmStatusHUD: CGMStatusHUDView!
-@@ -18,13 +63,140 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -18,13 +63,190 @@ public class StatusBarHUDView: UIView, NibLoadable {
      @IBOutlet public weak var pumpStatusHUD: PumpStatusHUDView!
          
      public var containerView: UIStackView!
@@ -781,9 +1183,7 @@ index 3bd851e..c7f9f26 100644
 +    public func setDashboardPresentation(_ presentation: DashboardPresentation) {
 +        if originalGlucoseFont == nil { originalGlucoseFont = cgmStatusHUD.glucoseValueHUD.glucoseLabel.font }
 +        self.presentation = presentation
-+        identityLabel.text = nil
-+        identityLabel.textColor = .secondaryLabel
-+        identityHeight.constant = 0
++        refreshPodCountdown()
 +        // A single compact row leaves room for every graph on the dashboard.
 +        let layout = presentation != .original && traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 1 : 0
 +        setHUDLayout(layout)
@@ -803,6 +1203,58 @@ index 3bd851e..c7f9f26 100644
 +        layer.borderWidth = 0
 +        layer.borderColor = presentation.accent.withAlphaComponent(0.3).resolvedColor(with: traitCollection).cgColor
 +    }
++
++    private var podExpiration: Date?
++    private var podCountdownEnabled = true
++    private var podCountdownTimer: Timer?
++
++    public static func podCountdownText(expiration: Date, now: Date) -> String {
++        let seconds = expiration.timeIntervalSince(now)
++        guard seconds.isFinite else { return "Pod expiry unavailable" }
++        guard seconds > 0 else { return "Pod expiry passed" }
++        let minutes = max(1, Int(ceil(seconds / 60)))
++        return "Pod expiry in \(minutes / 60)h \(minutes % 60)m"
++    }
++
++    public func setPodExpiration(_ expiration: Date?, enabled: Bool) {
++        podExpiration = expiration
++        podCountdownEnabled = enabled
++        refreshPodCountdown()
++        updatePodCountdownTimer()
++    }
++
++    private func refreshPodCountdown() {
++        let visible = presentation != .original && podCountdownEnabled && podExpiration != nil
++        identityHeight.constant = visible ? 18 : 0
++        identityLabel.text = visible ? Self.podCountdownText(expiration: podExpiration!, now: Date()) : nil
++        identityLabel.textColor = .secondaryLabel
++        identityLabel.accessibilityElementsHidden = !visible
++        identityLabel.accessibilityLabel = identityLabel.text
++        if let expiration = podExpiration, visible {
++            identityLabel.accessibilityValue = DateFormatter.localizedString(from: expiration, dateStyle: .short, timeStyle: .short)
++        } else {
++            identityLabel.accessibilityValue = nil
++        }
++        invalidateIntrinsicContentSize()
++        setNeedsLayout()
++    }
++
++    private func updatePodCountdownTimer() {
++        podCountdownTimer?.invalidate()
++        podCountdownTimer = nil
++        guard window != nil, presentation != .original, podCountdownEnabled, podExpiration != nil else { return }
++        podCountdownTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
++            self?.refreshPodCountdown()
++        }
++    }
++
++    public override func didMoveToWindow() {
++        super.didMoveToWindow()
++        refreshPodCountdown()
++        updatePodCountdownTimer()
++    }
++
++    deinit { podCountdownTimer?.invalidate() }
 +
 +    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
 +        super.traitCollectionDidChange(previousTraitCollection)
@@ -911,11 +1363,13 @@ index 3bd851e..c7f9f26 100644
              }
          }
      }
-@@ -50,13 +222,22 @@ public class StatusBarHUDView: UIView, NibLoadable {
+@@ -50,13 +272,24 @@ public class StatusBarHUDView: UIView, NibLoadable {
          containerView = (StatusBarHUDView.nib().instantiate(withOwner: self, options: nil)[0] as! UIStackView)
          containerView.translatesAutoresizingMaskIntoConstraints = false
          self.addSubview(containerView)
-+        identityLabel.font = .systemFont(ofSize: 12, weight: .semibold)
++        identityLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
++        identityLabel.adjustsFontSizeToFitWidth = true
++        identityLabel.minimumScaleFactor = 0.8
 +        identityLabel.accessibilityElementsHidden = true
 +        identityLabel.translatesAutoresizingMaskIntoConstraints = false
 +        addSubview(identityLabel)
