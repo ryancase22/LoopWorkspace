@@ -1,8 +1,8 @@
 diff --git a/Loop/Loop Widget Extension/Live Activity/GlucoseLiveActivityConfiguration.swift b/Loop/Loop Widget Extension/Live Activity/GlucoseLiveActivityConfiguration.swift
-index b288c71..46a04a1 100644
+index b288c71..3dd5495 100644
 --- a/Loop/Loop Widget Extension/Live Activity/GlucoseLiveActivityConfiguration.swift	
 +++ b/Loop/Loop Widget Extension/Live Activity/GlucoseLiveActivityConfiguration.swift	
-@@ -212,42 +212,51 @@ struct GlucoseLiveActivityConfiguration: Widget {
+@@ -212,42 +212,46 @@ struct GlucoseLiveActivityConfiguration: Widget {
              ? HKUnit.millimolesPerLiter.localizedShortUnitString
              : HKUnit.milligramsPerDeciliter.localizedShortUnitString
          
@@ -30,52 +30,48 @@ index b288c71..46a04a1 100644
 -                        .font(.headline)
 -                        .foregroundStyle(.primary)
 -                    
+-                    Text(unit)
+-                        .font(.caption2)
+-                        .foregroundStyle(Color(white: 0.7))
 +        let stale = context.state.compactReadingIsStale(at: Date(), activityIsStale: context.isStale)
 +        let glucoseColor: Color = !context.attributes.useLimits ? .primary : getGlucoseColor(context: context)
 +        let glucose = glucoseFormatter.string(from: context.state.currentGlucose) ?? "??"
 +
-+        VStack(alignment: .leading, spacing: 4) {
-+            HStack(alignment: .center, spacing: 8) {
++        HStack(alignment: .center, spacing: 8) {
++            VStack(alignment: .leading, spacing: 3) {
 +                Text(stale ? "—" : glucose + getArrowImage(context.state.trendType))
 +                    .font(.system(size: 32, weight: .bold, design: .rounded))
 +                    .monospacedDigit()
 +                    .foregroundStyle(stale ? Color.secondary : glucoseColor)
 +                    .lineLimit(1)
 +                    .minimumScaleFactor(0.65)
-+                Spacer(minLength: 0)
-+                loopIcon(context, size: 22)
-+            }
-+            HStack(spacing: 4) {
-+                if stale {
-+                    Text(context.state.ended ? "Ended" : "Old reading")
-+                } else {
-                     Text(unit)
--                        .font(.caption2)
--                        .foregroundStyle(Color(white: 0.7))
-+                    Text("· " + context.state.delta)
++                HStack(spacing: 4) {
++                    Text(stale ? (context.state.ended ? "Ended" : "Old reading") : unit)
++                    Text(context.state.date, style: .time)
                  }
-+                Spacer(minLength: 0)
-+                Text(context.state.date, style: .time)
-             }
-+            .font(.caption2)
-+            .foregroundStyle(.secondary)
-+            .lineLimit(1)
-+            .minimumScaleFactor(0.8)
-+
-+            HStack(spacing: 4) {
-+                Text("IOB")
-+                Spacer(minLength: 0)
-+                Text(stale ? "—" : (context.state.compactInsulinOnBoard ?? "—") + " U")
-+                    .monospacedDigit()
++                .font(.caption2)
++                .foregroundStyle(.secondary)
++                .lineLimit(1)
++                .minimumScaleFactor(0.75)
 +            }
-+            .font(.caption.weight(.semibold))
-+            .lineLimit(1)
++            Spacer(minLength: 0)
++            VStack(alignment: .trailing, spacing: 3) {
++                loopIcon(context, size: 22)
++                Text(stale ? "—" : (context.state.compactInsulinOnBoard ?? "—") + " U")
++                    .font(.caption.weight(.semibold))
++                    .monospacedDigit()
++                    .lineLimit(1)
++                    .minimumScaleFactor(0.8)
++                Text("IOB")
++                    .font(.caption2)
++                    .foregroundStyle(.secondary)
+             }
          }
 -        .frame(maxWidth: .infinity, maxHeight: .infinity)  // Allow HStack to use full available width
-+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
++        .frame(maxWidth: .infinity, maxHeight: .infinity)
          .privacySensitive()
 -        .padding(.all, 14)
-+        .padding(12)
++        .padding(10)
          .background(Color.clear)
      }
 -    
