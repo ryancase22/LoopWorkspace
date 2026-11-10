@@ -190,7 +190,7 @@ index 5d9122c..7a798c7 100644
              )
          } catch {
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
-index 580d67e..c92dcd9 100644
+index 580d67e..ab91b57 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
 +++ b/Loop/Loop/View Controllers/StatusTableViewController.swift	
 @@ -29,6 +29,118 @@ final class StatusTableViewController: LoopChartsTableViewController {
@@ -444,7 +444,7 @@ index 580d67e..c92dcd9 100644
                  } else {
                      cell.setSubtitleLabel(label: nil)
                  }
-@@ -1222,17 +1339,53 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1222,17 +1339,57 @@ final class StatusTableViewController: LoopChartsTableViewController {
              var availableSize = max(tableView.bounds.width, tableView.bounds.height)
              availableSize -= (tableView.safeAreaInsets.top + tableView.safeAreaInsets.bottom + hudHeight)
  
@@ -463,47 +463,51 @@ index 580d67e..c92dcd9 100644
          }
      }
  
-+    override func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
++    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
 +        guard dashboardLayout != .original, Section(rawValue: indexPath.section) == .charts else { return nil }
 +        let card = chartRow(at: indexPath.row)
 +        let visible = displayedDashboardCards
-+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-+            var actions: [UIMenuElement] = []
-+            if let index = visible.firstIndex(of: card) {
-+                for (offset, title, symbol) in [(-1, "Move up", "arrow.up"), (1, "Move down", "arrow.down")] where visible.indices.contains(index + offset) {
-+                    let neighbor = visible[index + offset]
-+                    actions.append(UIAction(title: title, image: UIImage(systemName: symbol)) { [weak self] _ in
-+                        let defaults = UserDefaults.standard
-+                        var order = DashboardCard.ordered(from: defaults.string(forKey: DashboardCard.orderKey) ?? "")
-+                        if let source = order.firstIndex(of: card), let target = order.firstIndex(of: neighbor) {
-+                            order.swapAt(source, target)
-+                            defaults.set(order.map { String($0.rawValue) }.joined(separator: ","), forKey: DashboardCard.orderKey)
-+                            self?.applyDashboardLayoutIfNeeded()
-+                        }
-+                    })
-+                }
-+            }
-+            if card != .glucose {
-+                actions.append(UIAction(title: "Hide card", image: UIImage(systemName: "eye.slash")) { [weak self] _ in
-+                    let defaults = UserDefaults.standard
-+                    var hidden = DashboardCard.hidden(from: defaults.string(forKey: DashboardCard.hiddenKey) ?? "")
-+                    hidden.insert(card)
-+                    defaults.set(hidden.sorted { $0.rawValue < $1.rawValue }.map { String($0.rawValue) }.joined(separator: ","), forKey: DashboardCard.hiddenKey)
-+                    self?.applyDashboardLayoutIfNeeded()
-+                })
-+            }
-+            actions.append(UIAction(title: "Show all cards", image: UIImage(systemName: "square.grid.2x2")) { [weak self] _ in
-+                UserDefaults.standard.set("", forKey: DashboardCard.hiddenKey)
++        var actions: [UIContextualAction] = []
++        if card != .glucose {
++            let hide = UIContextualAction(style: .normal, title: "Hide") { [weak self] _, _, finish in
++                let defaults = UserDefaults.standard
++                var hidden = DashboardCard.hidden(from: defaults.string(forKey: DashboardCard.hiddenKey) ?? "")
++                hidden.insert(card)
++                defaults.set(hidden.sorted { $0.rawValue < $1.rawValue }.map { String($0.rawValue) }.joined(separator: ","), forKey: DashboardCard.hiddenKey)
++                finish(true)
 +                self?.applyDashboardLayoutIfNeeded()
-+            })
-+            return UIMenu(title: card.title, children: actions)
++            }
++            hide.image = UIImage(systemName: "eye.slash")
++            hide.backgroundColor = .systemGray
++            actions.append(hide)
 +        }
++        if let index = visible.firstIndex(of: card) {
++            for (offset, title, symbol) in [(-1, "Up", "arrow.up"), (1, "Down", "arrow.down")] where visible.indices.contains(index + offset) {
++                let neighbor = visible[index + offset]
++                let move = UIContextualAction(style: .normal, title: title) { [weak self] _, _, finish in
++                    let defaults = UserDefaults.standard
++                    var order = DashboardCard.ordered(from: defaults.string(forKey: DashboardCard.orderKey) ?? "")
++                    if let source = order.firstIndex(of: card), let target = order.firstIndex(of: neighbor) {
++                        order.swapAt(source, target)
++                        defaults.set(order.map { String($0.rawValue) }.joined(separator: ","), forKey: DashboardCard.orderKey)
++                    }
++                    finish(true)
++                    self?.applyDashboardLayoutIfNeeded()
++                }
++                move.image = UIImage(systemName: symbol)
++                move.backgroundColor = .systemTeal
++                actions.append(move)
++            }
++        }
++        let configuration = UISwipeActionsConfiguration(actions: actions)
++        configuration.performsFirstActionWithFullSwipe = false
++        return configuration
 +    }
 +
      override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
          switch Section(rawValue: indexPath.section)! {
          case .alertWarning:
-@@ -1306,7 +1459,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
+@@ -1306,7 +1463,7 @@ final class StatusTableViewController: LoopChartsTableViewController {
                  }
              }
          case .charts:
@@ -513,7 +517,7 @@ index 580d67e..c92dcd9 100644
                  if automaticDosingStatus.automaticDosingEnabled || !FeatureFlags.simpleBolusCalculatorEnabled {
                      performSegue(withIdentifier: PredictionTableViewController.className, sender: indexPath)
 diff --git a/Loop/Loop/Views/SettingsView.swift b/Loop/Loop/Views/SettingsView.swift
-index 9f9e3aa..aa6bbdf 100644
+index 9f9e3aa..8bc9b26 100644
 --- a/Loop/Loop/Views/SettingsView.swift
 +++ b/Loop/Loop/Views/SettingsView.swift
 @@ -7,6 +7,7 @@
@@ -607,12 +611,12 @@ index 9f9e3aa..aa6bbdf 100644
 +                        HStack(spacing: 12) {
 +                            Button {
 +                                moveDashboardCard(card, offset: -1)
-+                            } label: { Image(systemName: "arrow.up.circle") }
++                            } label: { Image(systemName: "arrow.up.circle").frame(width: 32, height: 44).contentShape(Rectangle()) }
 +                            .disabled(DashboardCard.ordered(from: dashboardCardOrder).first == card)
 +                            .accessibilityLabel("Move \(card.title) up")
 +                            Button {
 +                                moveDashboardCard(card, offset: 1)
-+                            } label: { Image(systemName: "arrow.down.circle") }
++                            } label: { Image(systemName: "arrow.down.circle").frame(width: 32, height: 44).contentShape(Rectangle()) }
 +                            .disabled(DashboardCard.ordered(from: dashboardCardOrder).last == card)
 +                            .accessibilityLabel("Move \(card.title) down")
 +                        }
@@ -850,10 +854,10 @@ index 9f9e3aa..aa6bbdf 100644
 +    }
 +}
 diff --git a/Loop/LoopTests/LoopTests.swift b/Loop/LoopTests/LoopTests.swift
-index b29b1d5..fab0940 100644
+index b29b1d5..a650205 100644
 --- a/Loop/LoopTests/LoopTests.swift
 +++ b/Loop/LoopTests/LoopTests.swift
-@@ -7,10 +7,451 @@
+@@ -7,10 +7,480 @@
  //
  
  import XCTest
@@ -957,6 +961,35 @@ index b29b1d5..fab0940 100644
 +        XCTAssertEqual(DashboardCard.moving(.glucose, offset: -1, in: "0,1,2,3"), "0,1,2,3")
 +        XCTAssertEqual(DashboardCard.moving(.cob, offset: 1, in: "0,1,2,3"), "0,1,2,3")
 +        XCTAssertEqual(DashboardCard.moving(.dose, offset: -1, in: "2,2,99"), "2,0,1,3")
++    }
++
++    @MainActor
++    func testDashboardSwipeActionsRespectVisibleCardsAndOriginal() throws {
++        let defaults = UserDefaults.standard
++        let keys = [DashboardLayout.preferenceKey, DashboardCard.orderKey, DashboardCard.hiddenKey]
++        let previous = keys.map { defaults.object(forKey: $0) }
++        defer {
++            for (key, value) in zip(keys, previous) {
++                if let value = value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
++            }
++        }
++        defaults.set("0,1,2,3", forKey: DashboardCard.orderKey)
++        defaults.set("", forKey: DashboardCard.hiddenKey)
++        defaults.set(DashboardLayout.glance.rawValue, forKey: DashboardLayout.preferenceKey)
++        let controller = StatusTableViewController(style: .plain)
++        let table = UITableView()
++        // Chart section follows warning, HUD and status sections.
++        let first = try XCTUnwrap(controller.tableView(table, trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 3)))
++        XCTAssertEqual(first.actions.map { $0.title }, ["Down"])
++        XCTAssertFalse(first.performsFirstActionWithFullSwipe)
++        let middle = try XCTUnwrap(controller.tableView(table, trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 1, section: 3)))
++        XCTAssertEqual(middle.actions.map { $0.title }, ["Hide", "Up", "Down"])
++        let last = try XCTUnwrap(controller.tableView(table, trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 3, section: 3)))
++        XCTAssertEqual(last.actions.map { $0.title }, ["Hide", "Up"])
++        XCTAssertNil(controller.tableView(table, trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 1)))
++        defaults.set(DashboardLayout.original.rawValue, forKey: DashboardLayout.preferenceKey)
++        let original = StatusTableViewController(style: .plain)
++        XCTAssertNil(original.tableView(table, trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 3)))
 +    }
 +
 +    func testEveryVisibleCardCombinationUsesExactlyOneBudget() {
