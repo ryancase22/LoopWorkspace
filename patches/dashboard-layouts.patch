@@ -141,7 +141,7 @@ index 1b3328d..dd214f5 100644
      
      public let mode: LiveActivityMode
 diff --git a/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift b/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift
-index 5d9122c..efa010e 100644
+index 5d9122c..7a798c7 100644
 --- a/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift	
 +++ b/Loop/Loop/Managers/Live Activity/LiveActivityManager.swift	
 @@ -177,6 +177,12 @@ class LiveActivityManager : LiveActivityManagerProxy {
@@ -175,6 +175,24 @@ index 5d9122c..efa010e 100644
              ))
          }
      }
+@@ -281,7 +290,7 @@ class LiveActivityManager : LiveActivityManagerProxy {
+                         upperLimitChartMg: self.settings.upperLimitChartMg,
+                         lowerLimitChartMg: self.settings.lowerLimitChartMg
+                     ),
+-                    content: .init(state: dynamicState, staleDate: nil),
++                    content: .init(state: dynamicState, staleDate: dynamicState.compactStaleDate),
+                     pushType: .token
+                 )
+             }
+@@ -553,7 +562,7 @@ class LiveActivityManager : LiveActivityManagerProxy {
+                     upperLimitChartMg: settings.upperLimitChartMg,
+                     lowerLimitChartMg: settings.lowerLimitChartMg
+                 ),
+-                content: .init(state: dynamicState, staleDate: nil),
++                content: .init(state: dynamicState, staleDate: dynamicState.compactStaleDate),
+                 pushType: .token
+             )
+         } catch {
 diff --git a/Loop/Loop/View Controllers/StatusTableViewController.swift b/Loop/Loop/View Controllers/StatusTableViewController.swift
 index 580d67e..da4321b 100644
 --- a/Loop/Loop/View Controllers/StatusTableViewController.swift	
